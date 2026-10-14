@@ -27,7 +27,7 @@ Crear cada rama **desde `main`**, nunca desde otra rama de desarrollo:
 {feat|fix}/{issueId}/{titulo}
 ```
 
-titulo` es un slug en minúsculas sin tildes ni caracteres especiales. Ejemplo de rama de backend: `feat/3/arquitectura-backend` en `biki-stats-core`, asociada a https://github.com/aldeapucela/biki-stats-core/issues/3.
+`titulo` es un slug en minúsculas sin tildes ni caracteres especiales. Ejemplo de rama de backend: `feat/3/arquitectura-backend` en `biki-stats-core`, asociada a https://github.com/aldeapucela/biki-stats-core/issues/3.
 
 Solo tras recibir permiso para implementar:
 
