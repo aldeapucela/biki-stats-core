@@ -2,9 +2,9 @@
 
 Esta guía aplica a **biki-stats-core** (Python/FastAPI/SQLite) y **biki-stats-web** (JavaScript vanilla/Tailwind). Buscamos que las personas voluntarias colaboren con claridad y previsibilidad.
 
-## 1. Seguimiento centralizado
+## 1. Issues de cada repositorio
 
-Todas las issues se crean y gestionan en [aldeapucela/biki-stats-core](https://github.com/aldeapucela/biki-stats-core/issues), incluidas las de frontend, datos y documentación. El código debe desarrollarse en el repositorio que corresponda y el ID de la issue central aparece en ramas, commits y PRs.
+Las issues de backend/API/datos se crean en [biki-stats-core](https://github.com/aldeapucela/biki-stats-core/issues) y las de frontend/UI/analítica web en [biki-stats-web](https://github.com/aldeapucela/biki-stats-web/issues). Cada issue, rama, plan, commit y PR pertenecen al **mismo repositorio**. Para tareas transversales se crean issues independientes, enlazadas mediante URL completa.
 
 **Crear una issue no autoriza a iniciar su planificación.** El desarrollador elaborará el plan cuando se le encomiende trabajar en ella.
 
@@ -27,7 +27,7 @@ Crear cada rama **desde `main`**, nunca desde otra rama de desarrollo:
 {feat|fix}/{issueId}/{titulo}
 ```
 
-`titulo` es un slug en minúsculas sin tildes ni caracteres especiales. Ejemplo de rama de frontend (issue central #2): `feat/2/diseno-responsive-frontend` en `biki-stats-web`.
+titulo` es un slug en minúsculas sin tildes ni caracteres especiales. Ejemplo de rama de backend: `feat/3/arquitectura-backend` en `biki-stats-core`, asociada a https://github.com/aldeapucela/biki-stats-core/issues/3.
 
 Solo tras recibir permiso para implementar:
 
@@ -35,7 +35,7 @@ Solo tras recibir permiso para implementar:
 git fetch origin main
 git switch main
 git pull --ff-only origin main
-git switch -c feat/2/diseno-responsive-frontend
+git switch -c feat/3/arquitectura-backend
 ```
 
 Cada mensaje de commit:
@@ -51,10 +51,10 @@ Ejemplo:
 ```text
 feat: definir estilos del mapa
 Implementar los estilos de mapa aprobados y sus estados accesibles.
-Refs: https://github.com/aldeapucela/biki-stats-core/issues/2
+Refs: https://github.com/aldeapucela/biki-stats-core/issues/3
 ```
 
-Las PR apuntan a `main` del repositorio de implementación y enlazan la issue centralizada y su plan.
+Las PR apuntan a `main` del propio repositorio y enlazan su issue y su plan. Las dependencias de otros repositorios se referencian con URL completa.
 
 ## 4. Documentación y licencias
 

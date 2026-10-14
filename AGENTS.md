@@ -4,8 +4,8 @@ Este documento aplica a cualquier asistente que trabaje en este repositorio.
 
 ## Organización del trabajo
 
-- **Repositorio central de issues:** https://github.com/aldeapucela/biki-stats-core/issues.
-- **Repositorio de implementación:** se determina según cada issue. Una issue de frontend puede estar centralizada en `biki-stats-core` y desarrollarse en `biki-stats-web`.
+- **Issues de este repositorio:** https://github.com/aldeapucela/biki-stats-core/issues.
+- **Propiedad de las tareas:** backend/API/datos en `biki-stats-core`; frontend/UI/analítica web en `biki-stats-web`. Las tareas transversales se dividen, con enlaces cruzados cuando sea necesario.
 - Al **planificar o implementar** una issue de GitHub, seguir obligatoriamente `.agents/skills/github-issue-plan-first/SKILL.md`.
 - Si se solicita únicamente **crear, analizar, organizar o actualizar issues**, no generar planes de desarrollo ni escribir código.
 - Para iniciar una tarea: leer la issue y sus comentarios, intentar activar modo Plan, y preparar el plan en `.codex/plans/{issueId}-{titulo-de-la-issue}.md` del repositorio de implementación.
@@ -22,7 +22,7 @@ Este documento aplica a cualquier asistente que trabaje en este repositorio.
   Refs: {issueUrl}
   ```
 
-- `issueId` e `issueUrl` proceden del repositorio central `biki-stats-core`.
+- `issueId` e `issueUrl` proceden de **este repositorio**, que también es el repositorio donde se desarrolla y revisa la tarea.
 - Pull requests contra `main` del repositorio donde se desarrolla el código.
 - Código: AGPL-3.0-only. Datos/obras originales autorizados: CC-BY-SA-4.0. No atribuir automáticamente esta última licencia a datos de terceros.
 - Documentar en español para facilitar la incorporación de voluntarios y nunca publicar secretos.

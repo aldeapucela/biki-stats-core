@@ -1,13 +1,13 @@
 ---
 name: github-issue-plan-first
-description: "Aplicar cuando se solicita planificar, iniciar o implementar una issue de Movilidad enlazada desde GitHub. Consultar la issue central de biki-stats-core, intentar activar Plan mode, documentar el plan en .codex/plans/ del repositorio de implementación y esperar a resolver todas las dudas y recibir autorización explícita antes de escribir código."
+description: "Aplicar cuando se solicita planificar, iniciar o implementar una issue de Movilidad enlazada desde GitHub. Consultar la issue del repositorio responsable, intentar activar Plan mode, documentar el plan en .codex/plans/ del repositorio de implementación y esperar a resolver todas las dudas y recibir autorización explícita antes de escribir código."
 ---
 
 # Movilidad · GitHub issue → plan → permiso → código
 
 ## Alcance y activación
 
-Todas las issues de Movilidad (API, frontend, datos, infraestructura y documentación) se gestionan en https://github.com/aldeapucela/biki-stats-core/issues. El código se modifica en `biki-stats-core` o `biki-stats-web` según el alcance. **La ubicación de la issue no determina dónde debe implementarse.**
+**Cada repositorio gestiona sus propias issues.** Backend, API, ingestas y datos: https://github.com/aldeapucela/biki-stats-core/issues. Frontend, interfaz y analítica web: https://github.com/aldeapucela/biki-stats-web/issues. La URL de la issue debe corresponder al **repositorio donde se planifica e implementa**. Si la tarea afecta a ambos, separar issues y relacionarlas por URL.
 
 Activar esta skill al pedir **planificar, empezar o implementar** una issue, incluso si la URL de una issue es todo el encargo. **Si solo se pide crear, analizar, trasladar o clasificar issues, no crear un plan ni empezar código.**
 
@@ -16,7 +16,7 @@ Activar esta skill al pedir **planificar, empezar o implementar** una issue, inc
 1. Leer la **issue real** en GitHub: título, descripción, criterios de aceptación, comentarios, referencias y dependencias. Si no se puede consultar, detenerse; no inventar información.
 2. Intentar activar **Plan mode**, si el entorno dispone de él. La skill no puede activarlo por sí sola. Si no está disponible, indicarlo y continuar exclusivamente con análisis, sin afirmar que se ha activado.
 3. Identificar el **repositorio de implementación** y revisar su estado actual, arquitectura y documentación sin cambios destructivos. La rama base del proyecto es `main`.
-4. Crear o actualizar **únicamente** `.codex/plans/{issueId}-{titulo-de-la-issue}.md`, usando `assets/plan-template.md`. Generar slug en minúsculas, sin tildes ni caracteres especiales, y sin guiones repetidos. Usar siempre el ID y la URL de la issue centralizada.
+4. Crear o actualizar **únicamente** `.codex/plans/{issueId}-{titulo-de-la-issue}.md`, usando `assets/plan-template.md`. Generar slug en minúsculas, sin tildes ni caracteres especiales, y sin guiones repetidos. Usar siempre el ID y la URL de la issue del repositorio actual.
 5. Separar requisitos confirmados, hipótesis, exclusiones, riesgos, dependencias, pruebas y preguntas con posibles soluciones.
 6. Resolver **todas las dudas** con el solicitante y reflejar las decisiones adoptadas en el plan.
 7. **Detenerse antes de implementar.** La mera URL, un «ok» ambiguo, el silencio o la aprobación del plan no autorizan a codificar. Preguntar explícitamente: «¿Puedo empezar a escribir código para la issue #N?».
@@ -34,7 +34,7 @@ Hasta resolver todas las dudas y recibir permiso **explícito y específico para
    {feat|fix}/{issueId}/{titulo}
    ```
 
-   Ejemplo: `feat/2/diseno-responsive-frontend` en `biki-stats-web` para la issue central #2.
+   Ejemplo: `feat/3/arquitectura-backend` en `biki-stats-core` para https://github.com/aldeapucela/biki-stats-core/issues/3.
 3. Implementar el alcance aprobado, documentar decisiones, añadir pruebas y validar los resultados.
 4. Cada commit debe seguir exactamente:
 
