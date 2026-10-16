@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Protocol, Sequence
 
-from movilidad.domain.entities import Capture, Observation, Station
+from movilidad.domain.entities import Capture, Observation, Station, StationSnapshot
 
 
 class ObservationRepository(Protocol):
@@ -23,6 +23,26 @@ class ObservationRepository(Protocol):
     def save_observation(self, observation: Observation) -> bool: ...
 
     def latest_observations(self, provider_id: str) -> Sequence[Observation]: ...
+
+    def list_station_snapshots(
+        self,
+        provider_id: str,
+        query: str | None,
+        status: str | None,
+        has_electric: bool | None,
+        sort: str,
+        order: str,
+        limit: int,
+        offset: int,
+    ) -> tuple[Sequence[StationSnapshot], int]: ...
+
+    def get_station_snapshot(self, provider_id: str, station_id: str) -> StationSnapshot | None: ...
+
+    def station_exists(self, provider_id: str, station_id: str) -> bool: ...
+
+    def station_history(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime
+    ) -> Sequence[Observation]: ...
 
     def acquire_capture_lock(self, provider_id: str, capture_id: str) -> bool: ...
 
