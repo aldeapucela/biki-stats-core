@@ -1,0 +1,19 @@
+name: Captura GBFS
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: movilidad-collector
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: [self-hosted, movilidad]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ejecutar captura idempotente
+        run: docker compose --profile collector run --rm collector

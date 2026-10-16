@@ -1,0 +1,1 @@
+"""Entrada HTTP de FastAPI."""
