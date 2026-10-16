@@ -1,0 +1,29 @@
+services:
+  api:
+    build: .
+    command: ["uvicorn", "movilidad.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MOVILIDAD_DATABASE_PATH: /data/movilidad.sqlite3
+      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://movilidad.aldeapucela.org,http://localhost:5173}
+    ports:
+      - "8000:8000"
+    volumes:
+      - movilidad-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  collector:
+    build: .
+    command: ["movilidad-collector"]
+    environment:
+      MOVILIDAD_DATABASE_PATH: /data/movilidad.sqlite3
+    volumes:
+      - movilidad-data:/data
+    profiles: [collector]
+
+volumes:
+  movilidad-data:

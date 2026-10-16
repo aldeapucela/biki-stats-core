@@ -1,0 +1,1 @@
+"""Captura independiente de datos."""
