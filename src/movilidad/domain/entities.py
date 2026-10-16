@@ -39,3 +39,9 @@ class Capture:
     capture_id: str
     provider_id: str
     started_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class StationSnapshot:
+    station: Station
+    observation: Observation | None

@@ -120,8 +120,11 @@ with TestClient(app) as client:
     response = client.get("/api/v1/health")
 if response.status_code != 200:
     raise SystemExit(f"Healthcheck HTTP inesperado: {response.status_code}")
-if response.json().get("status") != "ok":
+body = response.json()
+if body.get("status") != "success" or body.get("code") != 200:
     raise SystemExit(f"Healthcheck inválido: {response.text}")
+if body.get("data", {}).get("database") != "ok":
+    raise SystemExit(f"Base de datos no disponible: {response.text}")
 if not response.headers.get("x-request-id"):
     raise SystemExit("Falta X-Request-ID en la respuesta")
 print("API health y request ID: OK")
