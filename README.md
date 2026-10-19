@@ -35,3 +35,25 @@ docker compose --profile collector run --rm collector
 Las migraciones de producción se ejecutan con `alembic upgrade head`. Consulta [la documentación de arquitectura](docs/ARQUITECTURA.md) para histórico, locks, backups y observabilidad.
 
 Para ejecutar la validación completa local usa `scripts/validate.sh`. Añade `--docker-build` para construir las imágenes y `--live-feed` para consultar el feed GBFS real.
+
+### Captura programada
+
+En producción, `.github/workflows/collector.yml` ejecuta el collector cada cinco minutos en el runner autoalojado `movilidad`.
+
+Para instalarlo mediante cron en un servidor Docker:
+
+1. Copia `deploy/movilidad-collector.cron` y sustituye `/opt/movilidad/biki-stats-core` por la ruta del repositorio.
+2. Instálalo para el usuario que tenga permisos para ejecutar Docker:
+
+   ```bash
+   crontab deploy/movilidad-collector.cron
+   ```
+
+3. Comprueba la entrada instalada y el log:
+
+   ```bash
+   crontab -l
+   tail -f /opt/movilidad/biki-stats-core/collector.log
+   ```
+
+El collector usa locks en SQLite para evitar duplicar capturas si una ejecución tarda más de cinco minutos.

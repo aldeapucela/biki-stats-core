@@ -70,7 +70,7 @@ def station_detail(
     data = service.get_current(provider_id, station_id)
     if data is None:
         raise ApiError(404, "RESOURCE_NOT_FOUND", "La estación no existe", "station_id")
-    return success(request, StationData.model_validate(data).model_dump(mode="json"))
+    return success(request, StationData.model_validate(data).model_dump(mode="json", by_alias=True))
 
 
 @router.get("/{station_id}/history", response_model=Envelope[HistoryData])
@@ -89,7 +89,7 @@ def station_history(
     data = service.history(provider_id, station_id, start, end, granularity, limit)
     if data is None:
         raise ApiError(404, "RESOURCE_NOT_FOUND", "La estación no existe", "station_id")
-    return success(request, HistoryData.model_validate(data).model_dump(mode="json"))
+    return success(request, HistoryData.model_validate(data).model_dump(mode="json", by_alias=True))
 
 
 @router.get("/{station_id}/summary", response_model=Envelope[SummaryData])
@@ -106,7 +106,7 @@ def station_summary(
     data = service.summary(provider_id, station_id, start, end)
     if data is None:
         raise ApiError(404, "RESOURCE_NOT_FOUND", "La estación no existe", "station_id")
-    return success(request, SummaryData.model_validate(data).model_dump(mode="json"))
+    return success(request, SummaryData.model_validate(data).model_dump(mode="json", by_alias=True))
 
 
 def _check_provider(provider_id: str) -> None:
