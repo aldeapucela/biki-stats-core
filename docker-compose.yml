@@ -4,8 +4,14 @@ services:
     build: .
     command: ["uvicorn", "movilidad.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
+      MOVILIDAD_ENV: ${MOVILIDAD_ENV:-production}
       MOVILIDAD_DATABASE_PATH: /data/movilidad.sqlite3
-      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://movilidad.aldeapucela.org,http://localhost:5173}
+      MOVILIDAD_COLLECTOR_TOKEN: ${MOVILIDAD_COLLECTOR_TOKEN:-}
+      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://biki.aldeapucela.org,http://localhost:5173}
+      MOVILIDAD_GBFS_URL: ${MOVILIDAD_GBFS_URL:-https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json}
+      MOVILIDAD_CAPTURE_INTERVAL_SECONDS: ${MOVILIDAD_CAPTURE_INTERVAL_SECONDS:-300}
+      MOVILIDAD_HTTP_TIMEOUT_SECONDS: ${MOVILIDAD_HTTP_TIMEOUT_SECONDS:-20}
+      MOVILIDAD_LOG_LEVEL: ${MOVILIDAD_LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
     volumes:
@@ -22,7 +28,13 @@ services:
     build: .
     command: ["movilidad-collector"]
     environment:
+      MOVILIDAD_ENV: ${MOVILIDAD_ENV:-production}
       MOVILIDAD_DATABASE_PATH: /data/movilidad.sqlite3
+      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://biki.aldeapucela.org,http://localhost:5173}
+      MOVILIDAD_GBFS_URL: ${MOVILIDAD_GBFS_URL:-https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json}
+      MOVILIDAD_CAPTURE_INTERVAL_SECONDS: ${MOVILIDAD_CAPTURE_INTERVAL_SECONDS:-300}
+      MOVILIDAD_HTTP_TIMEOUT_SECONDS: ${MOVILIDAD_HTTP_TIMEOUT_SECONDS:-20}
+      MOVILIDAD_LOG_LEVEL: ${MOVILIDAD_LOG_LEVEL:-INFO}
     volumes:
       - movilidad-data:/data
     profiles: [collector]

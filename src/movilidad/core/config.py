@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     )
     http_timeout_seconds: float = Field(default=20.0, alias="MOVILIDAD_HTTP_TIMEOUT_SECONDS", gt=0)
     log_level: str = Field(default="INFO", alias="MOVILIDAD_LOG_LEVEL")
+    collector_token: str | None = Field(default=None, alias="MOVILIDAD_COLLECTOR_TOKEN")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
