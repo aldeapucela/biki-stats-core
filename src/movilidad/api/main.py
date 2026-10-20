@@ -16,6 +16,7 @@ from movilidad.api.errors import (
     unexpected_error_handler,
     validation_error_handler,
 )
+from movilidad.api.routers.collector import router as collector_router
 from movilidad.api.routers.health import router as health_router
 from movilidad.api.routers.stations import router as stations_router
 from movilidad.core.config import get_settings
@@ -62,6 +63,7 @@ async def request_id_middleware(request: Request, call_next) -> Response:
 
 
 app.include_router(health_router, prefix="/api/v1")
+app.include_router(collector_router, prefix="/api/v1")
 app.include_router(stations_router, prefix="/api/v1")
 
 
