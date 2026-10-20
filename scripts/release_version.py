@@ -70,7 +70,11 @@ def latest_tag() -> str | None:
     for tag in git_output("tag", "--list").splitlines():
         if SEMVER.fullmatch(tag):
             tags.append(Version.parse(tag))
-    return str(max(tags)) if tags else None
+    return (
+        str(max(tags, key=lambda version: (version.major, version.minor, version.patch)))
+        if tags
+        else None
+    )
 
 
 def commits_since(tag: str | None) -> list[str]:
