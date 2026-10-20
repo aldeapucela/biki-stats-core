@@ -41,6 +41,18 @@ Para ejecutar una captura GBFS manual contra el feed configurado:
 .venv/bin/movilidad-collector
 ```
 
+Para importar manualmente el histórico de `flujosbiki` en desarrollo:
+
+```bash
+.venv/bin/movilidad-import-history --dry-run
+.venv/bin/movilidad-import-history
+```
+
+La primera orden descarga el snapshot fijado y valida los CSV sin modificar SQLite. La segunda
+importa el histórico de forma idempotente. Si ya terminó correctamente, se omite; usa
+`--force` únicamente para reprocesarlo explícitamente. El comando devuelve un resumen con
+aceptados, duplicados, conflictos, rechazos y valores derivados.
+
 La captura escribe en `./data/movilidad.sqlite3`. Para probar el endpoint remoto en local, define `MOVILIDAD_COLLECTOR_TOKEN` en `.env` y usa:
 
 ```bash
@@ -69,12 +81,16 @@ El archivo [.env.example](.env.example) contiene una plantilla. En local se copi
 | --- | --- | --- |
 | `MOVILIDAD_ENV` | `development` | Entorno de ejecución. En producción usar `production`. |
 | `MOVILIDAD_DATABASE_PATH` | `./data/movilidad.sqlite3` | Ruta SQLite. Compose la fija a `/data/movilidad.sqlite3`. |
-| `MOVILIDAD_CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173,https://movilidad.aldeapucela.org` | Orígenes permitidos separados por comas. En producción usar `https://biki.aldeapucela.org`. |
+| `MOVILIDAD_CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174,https://biki.aldeapucela.org` | Orígenes permitidos separados por comas. En producción usar `https://biki.aldeapucela.org`. No se aplica como requisito de origen al endpoint Bearer del collector. |
 | `MOVILIDAD_GBFS_URL` | Feed GBFS de BIKI Valladolid | URL de descubrimiento GBFS. |
 | `MOVILIDAD_CAPTURE_INTERVAL_SECONDS` | `300` | Intervalo de referencia de captura: 5 minutos. |
 | `MOVILIDAD_HTTP_TIMEOUT_SECONDS` | `20` | Timeout de las peticiones al proveedor GBFS. |
 | `MOVILIDAD_LOG_LEVEL` | `INFO` | Nivel de logs. |
 | `MOVILIDAD_COLLECTOR_TOKEN` | Vacío / endpoint desactivado | Token Bearer del endpoint operativo. Debe ser secreto en producción. |
+| `MOVILIDAD_HISTORY_IMPORT_ON_STARTUP` | `false` | Activa la importación histórica automática. Compose la activa para la API. |
+| `MOVILIDAD_HISTORY_SOURCE_REPOSITORY` | `serherval/flujosbiki` | Repositorio GitHub del histórico. |
+| `MOVILIDAD_HISTORY_SOURCE_REF` | `main` | Rama o referencia cuyo commit se fija al comenzar la importación. |
+| `MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS` | `300` | Espera entre reintentos automáticos tras un fallo. |
 | `MOVILIDAD_IMAGE` | `credondoc/biki-stats-core:latest` en Compose | Imagen Docker que se despliega. Se recomienda fijar una versión `x.y.z`. |
 
 Compose aplica valores de producción propios para `MOVILIDAD_ENV`, CORS, GBFS, timeout y logging. La variable `MOVILIDAD_DATABASE_PATH` y el volumen `/data` no deben cambiarse sin actualizar también la persistencia de API y collector.
@@ -101,7 +117,7 @@ MOVILIDAD_IMAGE=credondoc/biki-stats-core:1.2.3 docker compose up api
 
 ## Despliegue en PRO
 
-La imagen publicada necesita una base de datos SQLite persistente y, si se quiere mantener el histórico actualizado, un collector que comparta el mismo volumen con la API. Crea un archivo `.env` junto a `docker-compose.yml`:
+La imagen publicada necesita una base de datos SQLite persistente y, si se quiere mantener el histórico actualizado, un collector que comparta el mismo volumen con la API. La API importa automáticamente el histórico al arrancar por primera vez y guarda el estado en SQLite; los siguientes arranques lo omiten. Crea un archivo `.env` junto a `docker-compose.yml`:
 
 ```dotenv
 MOVILIDAD_IMAGE=credondoc/biki-stats-core:0.2.0
@@ -112,7 +128,15 @@ MOVILIDAD_GBFS_URL=https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gb
 MOVILIDAD_CAPTURE_INTERVAL_SECONDS=300
 MOVILIDAD_HTTP_TIMEOUT_SECONDS=20
 MOVILIDAD_LOG_LEVEL=INFO
+MOVILIDAD_HISTORY_IMPORT_ON_STARTUP=true
+MOVILIDAD_HISTORY_SOURCE_REPOSITORY=serherval/flujosbiki
+MOVILIDAD_HISTORY_SOURCE_REF=main
+MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS=300
 ```
+
+Antes de activar esta opción en PRO debe estar confirmada la autorización para reutilizar y
+publicar el histórico de `flujosbiki`, junto con la atribución correspondiente. El origen no
+declara una licencia por defecto.
 
 `MOVILIDAD_DATABASE_PATH` no es necesario definirlo en el `.env`: Compose lo fija a `/data/movilidad.sqlite3` dentro de los contenedores. El volumen `movilidad-data` conserva la base de datos aunque se actualice la imagen.
 
@@ -157,6 +181,10 @@ curl https://api.aldeapucela.org/biki/api/v1/health
 docker compose logs --tail=100 api
 docker compose logs --tail=100 collector
 ```
+
+El estado de la importación inicial se puede consultar en `GET /api/v1/health`, en los campos
+`history_import_status` y `history_import_updated_at`. Un fallo del histórico no deja caída la
+API: queda registrado y se reintenta según `MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS`.
 
 Para volver a una versión anterior, cambia `MOVILIDAD_IMAGE` a un tag existente y repite `pull`, la migración y el reinicio. No uses `latest` en PRO si necesitas poder identificar y revertir exactamente la versión desplegada.
 

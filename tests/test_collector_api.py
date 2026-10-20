@@ -46,6 +46,22 @@ def test_collector_runs_with_valid_token(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
+def test_collector_uses_bearer_without_origin_requirement(monkeypatch) -> None:
+    monkeypatch.setattr("movilidad.api.routers.collector.run_capture", lambda: "capture-123")
+    with _client(monkeypatch, "secret") as client:
+        response = client.post(
+            "/api/v1/ops/collector/run",
+            headers={
+                "Authorization": "Bearer secret",
+                "Origin": "https://otro-origen.example",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"capture_id": "capture-123"}
+    get_settings.cache_clear()
+
+
 def test_collector_reports_concurrent_capture(monkeypatch) -> None:
     monkeypatch.setattr("movilidad.api.routers.collector.run_capture", lambda: "skipped")
     with _client(monkeypatch, "secret") as client:

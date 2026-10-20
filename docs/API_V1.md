@@ -79,7 +79,7 @@ La distancia se calcula con Haversine, se devuelve como `distance_m` y el result
 
 ## Histórico
 
-`GET /api/v1/stations/{station_id}/history` requiere `from` y `to` en RFC3339 con zona horaria. El intervalo máximo es de 90 días. Admite:
+`GET /api/v1/stations/{station_id}/history` requiere `from` y `to` en RFC3339 con zona horaria. El intervalo máximo es de 3650 días para permitir consultar el histórico permanente. Admite:
 
 - `granularity=raw`: solo observaciones reales.
 - `granularity=hour`: agrupación en horas UTC.

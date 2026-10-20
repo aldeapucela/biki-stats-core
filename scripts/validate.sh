@@ -70,9 +70,12 @@ required_files=(
   alembic.ini
   migrations/env.py
   migrations/versions/0001_initial.py
+  migrations/versions/0002_historical_import.py
   src/movilidad/api/main.py
+  src/movilidad/application/history_import.py
   src/movilidad/collector/main.py
   src/movilidad/infrastructure/db/repository.py
+  src/movilidad/infrastructure/history/github.py
 )
 for file in "${required_files[@]}"; do
   [[ -f "$file" ]] || { echo "Falta: $file" >&2; exit 1; }
@@ -97,7 +100,10 @@ step "Migración Alembic en SQLite temporal"
 import os
 import sqlite3
 
-expected = {"alembic_version", "providers", "stations", "observations", "captures", "capture_locks"}
+expected = {
+    "alembic_version", "providers", "stations", "observations", "captures",
+    "capture_locks", "historical_imports",
+}
 with sqlite3.connect(os.environ["MOVILIDAD_DATABASE_PATH"]) as connection:
     tables = {
         row[0]
