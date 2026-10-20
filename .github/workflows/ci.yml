@@ -31,6 +31,10 @@ jobs:
         run: python -m pip install -e '.[dev]'
 
       - name: Ejecutar validación bloqueante
+        env:
+          PYTHON_BIN: python
+          ALEMBIC_BIN: alembic
+          RUFF_BIN: ruff
         run: ./scripts/validate.sh
 
   calculate-version:

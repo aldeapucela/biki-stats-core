@@ -32,14 +32,24 @@ done
 
 cd "$ROOT_DIR"
 
-if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "No se encuentra Python del entorno virtual: $PYTHON_BIN" >&2
+resolve_command() {
+  local requested="$1"
+  if [[ "$requested" == */* ]]; then
+    [[ -x "$requested" ]] || return 1
+    printf '%s\n' "$requested"
+    return 0
+  fi
+  command -v "$requested"
+}
+
+if ! PYTHON_BIN="$(resolve_command "$PYTHON_BIN")"; then
+  echo "No se encuentra Python: ${PYTHON_BIN:-python}" >&2
   echo "Crea el entorno con: python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'" >&2
   exit 1
 fi
 
-if [[ ! -x "$ALEMBIC_BIN" || ! -x "$RUFF_BIN" ]]; then
-  echo "Faltan herramientas de validación en .venv; instala las dependencias de desarrollo." >&2
+if ! ALEMBIC_BIN="$(resolve_command "$ALEMBIC_BIN")" || ! RUFF_BIN="$(resolve_command "$RUFF_BIN")"; then
+  echo "Faltan Alembic o Ruff; instala las dependencias de desarrollo." >&2
   exit 1
 fi
 
