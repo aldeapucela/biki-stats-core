@@ -11,5 +11,6 @@ def test_health_exposes_request_id(tmp_path, monkeypatch) -> None:
         response = client.get("/api/v1/health")
     get_settings.cache_clear()
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    assert response.json()["status"] == "success"
+    assert response.json()["data"]["database"] == "ok"
     assert response.headers["x-request-id"]
