@@ -78,6 +78,9 @@ step "Pruebas automatizadas"
 step "Lint"
 "$RUFF_BIN" check src tests scripts
 
+step "Formato"
+"$RUFF_BIN" format --check src tests scripts
+
 step "Migración Alembic en SQLite temporal"
 "$ALEMBIC_BIN" upgrade head
 "$PYTHON_BIN" - <<'PY'

@@ -36,6 +36,15 @@ Las migraciones de producción se ejecutan con `alembic upgrade head`. Consulta 
 
 Para ejecutar la validación completa local usa `scripts/validate.sh`. Añade `--docker-build` para construir las imágenes y `--live-feed` para consultar el feed GBFS real.
 
+La integración continua ejecuta esta validación en todas las ramas y pull requests. Los cambios publicados en `main` calculan la siguiente versión a partir de Conventional Commits, crean un tag `x.y.z` y publican `credondoc/biki-stats-core:x.y.z` y `credondoc/biki-stats-core:latest`.
+
+Para probar una imagen publicada en local:
+
+```bash
+MOVILIDAD_IMAGE=credondoc/biki-stats-core:1.2.3 docker compose pull
+MOVILIDAD_IMAGE=credondoc/biki-stats-core:1.2.3 docker compose up api
+```
+
 ### Captura programada
 
 En producción, `.github/workflows/collector.yml` ejecuta el collector cada cinco minutos en el runner autoalojado `movilidad`.
