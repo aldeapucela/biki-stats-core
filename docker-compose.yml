@@ -1,5 +1,6 @@
 services:
   api:
+    image: ${MOVILIDAD_IMAGE:-credondoc/biki-stats-core:latest}
     build: .
     command: ["uvicorn", "movilidad.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
@@ -17,6 +18,7 @@ services:
     restart: unless-stopped
 
   collector:
+    image: ${MOVILIDAD_IMAGE:-credondoc/biki-stats-core:latest}
     build: .
     command: ["movilidad-collector"]
     environment:

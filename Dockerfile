@@ -4,6 +4,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src
 
+ARG APP_VERSION=dev
+LABEL org.opencontainers.image.title="biki-stats-core" \
+      org.opencontainers.image.version="$APP_VERSION" \
+      org.opencontainers.image.source="https://github.com/aldeapucela/biki-stats-core"
+
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE /app/
 COPY src /app/src
