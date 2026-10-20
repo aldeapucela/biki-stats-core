@@ -42,6 +42,8 @@ class HealthData(BaseModel):
     database: str
     environment: str
     checked_at: datetime
+    history_import_status: str | None = None
+    history_import_updated_at: datetime | None = None
 
 
 class HistoryPoint(BaseModel):

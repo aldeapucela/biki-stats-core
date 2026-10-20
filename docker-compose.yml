@@ -7,11 +7,15 @@ services:
       MOVILIDAD_ENV: ${MOVILIDAD_ENV:-production}
       MOVILIDAD_DATABASE_PATH: /data/movilidad.sqlite3
       MOVILIDAD_COLLECTOR_TOKEN: ${MOVILIDAD_COLLECTOR_TOKEN:-}
-      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://biki.aldeapucela.org,http://localhost:5173}
+      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://biki.aldeapucela.org,http://localhost:5173,http://localhost:5174}
       MOVILIDAD_GBFS_URL: ${MOVILIDAD_GBFS_URL:-https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json}
       MOVILIDAD_CAPTURE_INTERVAL_SECONDS: ${MOVILIDAD_CAPTURE_INTERVAL_SECONDS:-300}
       MOVILIDAD_HTTP_TIMEOUT_SECONDS: ${MOVILIDAD_HTTP_TIMEOUT_SECONDS:-20}
       MOVILIDAD_LOG_LEVEL: ${MOVILIDAD_LOG_LEVEL:-INFO}
+      MOVILIDAD_HISTORY_IMPORT_ON_STARTUP: ${MOVILIDAD_HISTORY_IMPORT_ON_STARTUP:-true}
+      MOVILIDAD_HISTORY_SOURCE_REPOSITORY: ${MOVILIDAD_HISTORY_SOURCE_REPOSITORY:-serherval/flujosbiki}
+      MOVILIDAD_HISTORY_SOURCE_REF: ${MOVILIDAD_HISTORY_SOURCE_REF:-main}
+      MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS: ${MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS:-300}
     ports:
       - "8000:8000"
     volumes:
@@ -30,11 +34,12 @@ services:
     environment:
       MOVILIDAD_ENV: ${MOVILIDAD_ENV:-production}
       MOVILIDAD_DATABASE_PATH: /data/movilidad.sqlite3
-      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://biki.aldeapucela.org,http://localhost:5173}
+      MOVILIDAD_CORS_ORIGINS: ${MOVILIDAD_CORS_ORIGINS:-https://biki.aldeapucela.org,http://localhost:5173,http://localhost:5174}
       MOVILIDAD_GBFS_URL: ${MOVILIDAD_GBFS_URL:-https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json}
       MOVILIDAD_CAPTURE_INTERVAL_SECONDS: ${MOVILIDAD_CAPTURE_INTERVAL_SECONDS:-300}
       MOVILIDAD_HTTP_TIMEOUT_SECONDS: ${MOVILIDAD_HTTP_TIMEOUT_SECONDS:-20}
       MOVILIDAD_LOG_LEVEL: ${MOVILIDAD_LOG_LEVEL:-INFO}
+      MOVILIDAD_HISTORY_IMPORT_ON_STARTUP: ${MOVILIDAD_HISTORY_IMPORT_ON_STARTUP:-false}
     volumes:
       - movilidad-data:/data
     profiles: [collector]

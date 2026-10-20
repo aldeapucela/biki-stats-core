@@ -28,6 +28,7 @@ dev = [
 [project.scripts]
 movilidad-api = "movilidad.api.main:run"
 movilidad-collector = "movilidad.collector.main:run"
+movilidad-import-history = "movilidad.application.history_import:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/movilidad"]

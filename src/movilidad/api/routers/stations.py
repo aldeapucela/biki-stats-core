@@ -11,7 +11,7 @@ from movilidad.schemas.api.common import Envelope, PaginationMeta
 from movilidad.schemas.api.stations import HistoryData, StationData, SummaryData
 
 router = APIRouter(prefix="/stations", tags=["stations"])
-MAX_HISTORY_DAYS = 90
+MAX_HISTORY_DAYS = 3650
 
 
 @router.get("/nearby", response_model=Envelope[list[StationData]])
@@ -127,6 +127,6 @@ def _validate_range(start: datetime, end: datetime) -> tuple[datetime, datetime]
         raise ApiError(422, "INVALID_QUERY_PARAMETER", "from debe ser anterior a to", "from/to")
     if end - start > timedelta(days=MAX_HISTORY_DAYS):
         raise ApiError(
-            422, "INVALID_QUERY_PARAMETER", "El intervalo máximo es de 90 días", "from/to"
+            422, "INVALID_QUERY_PARAMETER", "El intervalo máximo es de 3650 días", "from/to"
         )
     return start, end

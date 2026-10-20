@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sqlite3
 from contextlib import asynccontextmanager
@@ -19,6 +20,7 @@ from movilidad.api.errors import (
 from movilidad.api.routers.collector import router as collector_router
 from movilidad.api.routers.health import router as health_router
 from movilidad.api.routers.stations import router as stations_router
+from movilidad.application.history_import import history_import_worker
 from movilidad.core.config import get_settings
 from movilidad.core.logging import configure_logging
 
@@ -27,7 +29,17 @@ from movilidad.core.logging import configure_logging
 async def lifespan(_: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
-    yield
+    worker = (
+        asyncio.create_task(history_import_worker(settings))
+        if settings.history_import_on_startup
+        else None
+    )
+    try:
+        yield
+    finally:
+        if worker is not None:
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
 
 
 app = FastAPI(

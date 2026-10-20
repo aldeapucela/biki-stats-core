@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime, timezone
+from typing import Any
 
 from movilidad.domain.entities import Capture, Observation, Station, StationSnapshot
 
@@ -71,6 +72,27 @@ class SqliteObservationRepository:
             ),
         )
 
+    def save_historical_station(self, station: Station, updated_at: datetime) -> None:
+        """Guarda una estación sin borrar metadatos actuales conocidos."""
+        self.connection.execute(
+            """INSERT INTO stations(provider_id, station_id, name, latitude, longitude,
+            capacity, is_active, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider_id, station_id) DO UPDATE SET name=excluded.name,
+            capacity=COALESCE(excluded.capacity, stations.capacity),
+            updated_at=CASE WHEN stations.updated_at > excluded.updated_at
+                THEN stations.updated_at ELSE excluded.updated_at END""",
+            (
+                station.provider_id,
+                station.station_id,
+                station.name,
+                station.latitude,
+                station.longitude,
+                station.capacity,
+                int(station.is_active),
+                iso(updated_at),
+            ),
+        )
+
     def save_observation(self, observation: Observation) -> bool:
         cursor = self.connection.execute(
             """INSERT OR IGNORE INTO observations(provider_id, station_id, observed_at,
@@ -93,6 +115,125 @@ class SqliteObservationRepository:
         )
         self.connection.commit()
         return cursor.rowcount == 1
+
+    def save_historical_observation(self, observation: Observation) -> str:
+        """Inserta sin commit y clasifica inserciones, duplicados y conflictos."""
+        values = (
+            observation.mechanical_bikes,
+            observation.electric_bikes,
+            observation.free_docks,
+            observation.capacity,
+            int(observation.timestamp_ambiguous),
+        )
+        existing = self.connection.execute(
+            """SELECT mechanical_bikes, electric_bikes, free_docks, capacity,
+            timestamp_ambiguous FROM observations
+            WHERE provider_id = ? AND station_id = ? AND observed_at = ?""",
+            (observation.provider_id, observation.station_id, iso(observation.observed_at)),
+        ).fetchone()
+        if existing:
+            return "duplicate" if tuple(existing) == values else "conflict"
+        self.connection.execute(
+            """INSERT INTO observations(provider_id, station_id, observed_at, collected_at,
+            source, capture_id, mechanical_bikes, electric_bikes, free_docks, capacity,
+            timestamp_ambiguous) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                observation.provider_id,
+                observation.station_id,
+                iso(observation.observed_at),
+                iso(observation.collected_at),
+                observation.source,
+                observation.capture_id,
+                observation.mechanical_bikes,
+                observation.electric_bikes,
+                observation.free_docks,
+                observation.capacity,
+                int(observation.timestamp_ambiguous),
+            ),
+        )
+        return "accepted"
+
+    def historical_import_status(self, source_key: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "SELECT * FROM historical_imports WHERE source_key = ?", (source_key,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def claim_historical_import(
+        self,
+        source_key: str,
+        source_repository: str,
+        source_ref: str,
+        now: datetime,
+        stale_after_seconds: int = 1800,
+        force: bool = False,
+    ) -> str:
+        """Reclama la importación de forma atómica para evitar workers concurrentes."""
+        now_iso = iso(now)
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.connection.execute(
+                "SELECT status, updated_at FROM historical_imports WHERE source_key = ?",
+                (source_key,),
+            ).fetchone()
+            if row and row["status"] == "completed" and not force:
+                self.connection.commit()
+                return "completed"
+            if row and row["status"] == "running":
+                updated = datetime.fromisoformat(row["updated_at"].replace("Z", "+00:00"))
+                if (now - updated).total_seconds() < stale_after_seconds:
+                    self.connection.commit()
+                    return "running"
+            self.connection.execute(
+                """INSERT INTO historical_imports(
+                source_key, source_repository, source_ref, status, started_at, updated_at)
+                VALUES (?, ?, ?, 'running', ?, ?)
+                ON CONFLICT(source_key) DO UPDATE SET source_repository=excluded.source_repository,
+                source_ref=excluded.source_ref, status='running', started_at=excluded.started_at,
+                finished_at=NULL, updated_at=excluded.updated_at, error_message=NULL""",
+                (source_key, source_repository, source_ref, now_iso, now_iso),
+            )
+            self.connection.commit()
+            return "claimed"
+        except Exception:
+            self.connection.rollback()
+            raise
+
+    def finish_historical_import(
+        self,
+        source_key: str,
+        status: str,
+        finished_at: datetime,
+        *,
+        source_commit: str | None = None,
+        manifest_json: str | None = None,
+        accepted: int = 0,
+        duplicate: int = 0,
+        conflict: int = 0,
+        rejected: int = 0,
+        derived: int = 0,
+        error_message: str | None = None,
+    ) -> None:
+        self.connection.execute(
+            """UPDATE historical_imports SET status=?, source_commit=?, manifest_json=?,
+            finished_at=?, updated_at=?, accepted_count=?, duplicate_count=?, conflict_count=?,
+            rejected_count=?, derived_count=?, error_message=? WHERE source_key=?""",
+            (
+                status,
+                source_commit,
+                manifest_json,
+                iso(finished_at),
+                iso(finished_at),
+                accepted,
+                duplicate,
+                conflict,
+                rejected,
+                derived,
+                error_message,
+                source_key,
+            ),
+        )
+        self.connection.commit()
 
     def latest_observations(self, provider_id: str) -> list[Observation]:
         rows = self.connection.execute(
