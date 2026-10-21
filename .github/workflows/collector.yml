@@ -17,9 +17,9 @@ jobs:
       - name: Solicitar captura remota
         env:
           COLLECTOR_API_URL: https://api.aldeapucela.org/biki
-          MOVILIDAD_COLLECTOR_TOKEN: ${{ secrets.MOVILIDAD_COLLECTOR_TOKEN }}
+          BIKI_COLLECTOR_TOKEN: ${{ secrets.BIKI_COLLECTOR_TOKEN }}
         run: >-
           curl --fail-with-body --silent --show-error --max-time 180
           --request POST
-          --header "Authorization: Bearer ${MOVILIDAD_COLLECTOR_TOKEN}"
+          --header "Authorization: Bearer ${BIKI_COLLECTOR_TOKEN}"
           "${COLLECTOR_API_URL}/api/v1/ops/collector/run"

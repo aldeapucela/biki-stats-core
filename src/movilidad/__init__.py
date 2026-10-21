@@ -1,1 +1,1 @@
-"""Núcleo backend de Movilidad."""
+"""Núcleo backend de BIKI."""

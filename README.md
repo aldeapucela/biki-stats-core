@@ -1,6 +1,6 @@
-# Movilidad · biki-stats-core
+# BIKI · biki-stats-core
 
-Proyecto de código abierto de [Aldea Pucela](https://aldeapucela.org/) para informar sobre las estaciones del servicio BIKI de Valladolid.
+Backend de código abierto de [Aldea Pucela](https://aldeapucela.org/) para informar sobre las estaciones del servicio BIKI de Valladolid.
 
 **Estado:** arquitectura base implementada: API FastAPI, collector GBFS, SQLite/Alembic y despliegue Docker.
 
@@ -53,12 +53,12 @@ importa el histórico de forma idempotente. Si ya terminó correctamente, se omi
 `--force` únicamente para reprocesarlo explícitamente. El comando devuelve un resumen con
 aceptados, duplicados, conflictos, rechazos y valores derivados.
 
-La captura escribe en `./data/movilidad.sqlite3`. Para probar el endpoint remoto en local, define `MOVILIDAD_COLLECTOR_TOKEN` en `.env` y usa:
+La captura escribe en `./data/movilidad.sqlite3`. Para probar el endpoint remoto en local, define `BIKI_COLLECTOR_TOKEN` en `.env` y usa:
 
 ```bash
 curl --fail-with-body --silent --show-error \
   --request POST \
-  --header "Authorization: Bearer ${MOVILIDAD_COLLECTOR_TOKEN}" \
+  --header "Authorization: Bearer ${BIKI_COLLECTOR_TOKEN}" \
   http://127.0.0.1:8000/api/v1/ops/collector/run
 ```
 
@@ -79,99 +79,146 @@ El archivo [.env.example](.env.example) contiene una plantilla. En local se copi
 
 | Variable | Valor por defecto de la aplicación | Uso |
 | --- | --- | --- |
-| `MOVILIDAD_ENV` | `development` | Entorno de ejecución. En producción usar `production`. |
-| `MOVILIDAD_DATABASE_PATH` | `./data/movilidad.sqlite3` | Ruta SQLite. Compose la fija a `/data/movilidad.sqlite3`. |
-| `MOVILIDAD_CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174,https://biki.aldeapucela.org` | Orígenes permitidos separados por comas. En producción usar `https://biki.aldeapucela.org`. No se aplica como requisito de origen al endpoint Bearer del collector. |
-| `MOVILIDAD_GBFS_URL` | Feed GBFS de BIKI Valladolid | URL de descubrimiento GBFS. |
-| `MOVILIDAD_CAPTURE_INTERVAL_SECONDS` | `300` | Intervalo de referencia de captura: 5 minutos. |
-| `MOVILIDAD_HTTP_TIMEOUT_SECONDS` | `20` | Timeout de las peticiones al proveedor GBFS. |
-| `MOVILIDAD_LOG_LEVEL` | `INFO` | Nivel de logs. |
-| `MOVILIDAD_COLLECTOR_TOKEN` | Vacío / endpoint desactivado | Token Bearer del endpoint operativo. Debe ser secreto en producción. |
-| `MOVILIDAD_HISTORY_IMPORT_ON_STARTUP` | `false` | Activa la importación histórica automática. Compose la activa para la API. |
-| `MOVILIDAD_HISTORY_SOURCE_REPOSITORY` | `serherval/flujosbiki` | Repositorio GitHub del histórico. |
-| `MOVILIDAD_HISTORY_SOURCE_REF` | `main` | Rama o referencia cuyo commit se fija al comenzar la importación. |
-| `MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS` | `300` | Espera entre reintentos automáticos tras un fallo. |
-| `MOVILIDAD_IMAGE` | `credondoc/biki-stats-core:latest` en Compose | Imagen Docker que se despliega. Se recomienda fijar una versión `x.y.z`. |
+| `BIKI_ENV` | `development` | Entorno de ejecución. En producción usar `production`. |
+| `BIKI_DATABASE_PATH` | `./data/movilidad.sqlite3` | Ruta SQLite. Compose la fija a `/data/movilidad.sqlite3`. |
+| `BIKI_CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174,https://biki.aldeapucela.org` | Orígenes permitidos separados por comas. En producción usar `https://biki.aldeapucela.org`. No se aplica como requisito de origen al endpoint Bearer del collector. |
+| `BIKI_GBFS_URL` | Feed GBFS de BIKI Valladolid | URL de descubrimiento GBFS. |
+| `BIKI_CAPTURE_INTERVAL_SECONDS` | `300` | Intervalo de referencia de captura: 5 minutos. |
+| `BIKI_HTTP_TIMEOUT_SECONDS` | `20` | Timeout de las peticiones al proveedor GBFS. |
+| `BIKI_LOG_LEVEL` | `INFO` | Nivel de logs. |
+| `BIKI_COLLECTOR_TOKEN` | Vacío / endpoint desactivado | Token Bearer del endpoint operativo. Debe ser secreto en producción. |
+| `BIKI_HISTORY_IMPORT_ON_STARTUP` | `false` | Activa la importación histórica automática. Compose la activa para la API. |
+| `BIKI_HISTORY_SOURCE_REPOSITORY` | `serherval/flujosbiki` | Repositorio GitHub del histórico. |
+| `BIKI_HISTORY_SOURCE_REF` | `main` | Rama o referencia cuyo commit se fija al comenzar la importación. |
+| `BIKI_HISTORY_IMPORT_RETRY_SECONDS` | `300` | Espera entre reintentos automáticos tras un fallo. |
 
-Compose aplica valores de producción propios para `MOVILIDAD_ENV`, CORS, GBFS, timeout y logging. La variable `MOVILIDAD_DATABASE_PATH` y el volumen `/data` no deben cambiarse sin actualizar también la persistencia de API y collector.
+Compose aplica valores de producción propios para `BIKI_ENV`, CORS, GBFS, timeout y logging. La variable `BIKI_DATABASE_PATH` y el volumen `/data` no deben cambiarse sin actualizar también la persistencia de la API.
 
 ## Docker
 
 ```bash
-docker compose up --build api
-docker compose --profile collector run --rm collector
+docker compose up api
 ```
 
-Las migraciones de producción se ejecutan con `alembic upgrade head`. Consulta [la documentación de arquitectura](docs/ARQUITECTURA.md) para histórico, locks, backups y observabilidad.
+Compose construye la API desde el `Dockerfile` local usando los argumentos definidos en `docker-compose.yml`. El collector se ejecuta mediante el endpoint HTTP protegido, invocado por GitHub Actions. Las migraciones de producción se ejecutan con `alembic upgrade head`. Consulta [la documentación de arquitectura](docs/ARQUITECTURA.md) para histórico, locks, backups y observabilidad.
 
-Para ejecutar la validación completa local usa `scripts/validate.sh`. Añade `--docker-build` para construir las imágenes y `--live-feed` para consultar el feed GBFS real.
+Para ejecutar la validación completa local usa `scripts/validate.sh`. Añade `--docker-build` para construir manualmente la imagen y `--live-feed` para consultar el feed GBFS real.
 
-La integración continua ejecuta esta validación en todas las ramas y pull requests. Los cambios publicados en `main` calculan la siguiente versión a partir de Conventional Commits, crean un tag `x.y.z` y publican `credondoc/biki-stats-core:x.y.z` y `credondoc/biki-stats-core:latest`.
-
-Para probar una imagen publicada en local:
-
-```bash
-MOVILIDAD_IMAGE=credondoc/biki-stats-core:1.2.3 docker compose pull
-MOVILIDAD_IMAGE=credondoc/biki-stats-core:1.2.3 docker compose up api
-```
+La integración continua ejecuta esta validación en todas las ramas y pull requests. Los cambios publicados en `main` calculan la siguiente versión a partir de Conventional Commits y crean un tag `x.y.z`.
 
 ## Despliegue en PRO
 
-La imagen publicada necesita una base de datos SQLite persistente y, si se quiere mantener el histórico actualizado, un collector que comparta el mismo volumen con la API. La API importa automáticamente el histórico al arrancar por primera vez y guarda el estado en SQLite; los siguientes arranques lo omiten. Crea un archivo `.env` junto a `docker-compose.yml`:
+La API necesita una base de datos SQLite persistente. La captura se solicita mediante HTTP desde GitHub Actions, por lo que no se ejecuta un contenedor independiente para el collector. La API importa automáticamente el histórico al arrancar por primera vez y guarda el estado en SQLite; los siguientes arranques lo omiten. Crea un archivo `.env` junto a `docker-compose.yml`:
 
 ```dotenv
-MOVILIDAD_IMAGE=credondoc/biki-stats-core:0.2.0
-MOVILIDAD_ENV=production
-MOVILIDAD_COLLECTOR_TOKEN=replace-with-a-secret-token
-MOVILIDAD_CORS_ORIGINS=https://biki.aldeapucela.org
-MOVILIDAD_GBFS_URL=https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json
-MOVILIDAD_CAPTURE_INTERVAL_SECONDS=300
-MOVILIDAD_HTTP_TIMEOUT_SECONDS=20
-MOVILIDAD_LOG_LEVEL=INFO
-MOVILIDAD_HISTORY_IMPORT_ON_STARTUP=true
-MOVILIDAD_HISTORY_SOURCE_REPOSITORY=serherval/flujosbiki
-MOVILIDAD_HISTORY_SOURCE_REF=main
-MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS=300
+BIKI_ENV=production
+BIKI_COLLECTOR_TOKEN=replace-with-a-secret-token
+BIKI_CORS_ORIGINS=https://biki.aldeapucela.org
+BIKI_GBFS_URL=https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json
+BIKI_CAPTURE_INTERVAL_SECONDS=300
+BIKI_HTTP_TIMEOUT_SECONDS=20
+BIKI_LOG_LEVEL=INFO
+BIKI_HISTORY_IMPORT_ON_STARTUP=true
+BIKI_HISTORY_SOURCE_REPOSITORY=serherval/flujosbiki
+BIKI_HISTORY_SOURCE_REF=main
+BIKI_HISTORY_IMPORT_RETRY_SECONDS=300
 ```
 
 Antes de activar esta opción en PRO debe estar confirmada la autorización para reutilizar y
 publicar el histórico de `flujosbiki`, junto con la atribución correspondiente. El origen no
 declara una licencia por defecto.
 
-`MOVILIDAD_DATABASE_PATH` no es necesario definirlo en el `.env`: Compose lo fija a `/data/movilidad.sqlite3` dentro de los contenedores. El volumen `movilidad-data` conserva la base de datos aunque se actualice la imagen.
+`BIKI_DATABASE_PATH` no es necesario definirlo en el `.env`: Compose lo fija a `/data/movilidad.sqlite3` dentro de los contenedores. El volumen `movilidad-data` conserva la base de datos aunque se reconstruya el contenedor.
 
-Descarga la imagen y levanta la API y el collector:
+Construye la imagen local y levanta la API:
 
 ```bash
-docker compose pull
+docker compose build api
 docker compose run --rm api alembic upgrade head
 docker compose up -d --no-build api
-docker compose --profile collector up -d --no-build collector
 ```
 
 Comprueba el estado y los logs:
 
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8004/api/v1/health
 docker compose ps
 docker compose logs -f api
-docker compose logs -f collector
 ```
 
-El reverse proxy debe publicar la API bajo `https://api.aldeapucela.org/biki/` y permitir el origen `https://biki.aldeapucela.org`. No guardes credenciales de Docker Hub en el servidor: `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN` solo se usan como secretos de GitHub Actions para publicar imágenes.
+El reverse proxy debe publicar la API bajo `https://api.aldeapucela.org/biki/` y permitir el origen `https://biki.aldeapucela.org`.
+
+### Caché de Nginx
+
+La API devuelve `ETag` y `Cache-Control: public, max-age=30`. Para reducir consultas repetidas
+desde el frontend, configura Nginx para cachear únicamente las respuestas de lectura durante
+30 segundos. La caché debe estar en el contexto `http` y las ubicaciones en el `server` HTTPS
+que ya publica `/biki/`:
+
+```nginx
+# Contexto http {}
+proxy_cache_path /var/cache/nginx/biki
+    levels=1:2
+    keys_zone=biki_api:10m
+    max_size=128m
+    inactive=5m
+    use_temp_path=off;
+
+upstream biki_api {
+    server 127.0.0.1:8004;
+}
+
+# Contexto server {}
+location = /biki/api/v1/health {
+    proxy_pass http://biki_api/api/v1/health;
+    proxy_cache off;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /biki/api/v1/ops/collector/run {
+    proxy_pass http://biki_api/api/v1/ops/collector/run;
+    proxy_cache off;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Authorization $http_authorization;
+}
+
+location /biki/ {
+    proxy_pass http://biki_api/;
+    proxy_cache biki_api;
+    proxy_cache_methods GET HEAD;
+    proxy_cache_valid 200 30s;
+    proxy_cache_valid 404 5s;
+    proxy_cache_lock on;
+    proxy_cache_revalidate on;
+    proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+    proxy_cache_bypass $http_authorization;
+    proxy_no_cache $http_authorization $upstream_http_set_cookie;
+    add_header X-Cache-Status $upstream_cache_status always;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+No uses `proxy_ignore_headers Cache-Control`, `ETag` ni `Set-Cookie`: la aplicación ya marca
+la frescura y las respuestas condicionadas. Comprueba el comportamiento con el encabezado
+`X-Cache-Status` (`MISS`, `HIT` o `BYPASS`) y no caches nunca el endpoint `POST` protegido.
 
 ### Modificaciones en PRO
 
-Para actualizar la versión desplegada, modifica `MOVILIDAD_IMAGE` en el `.env` del servidor, descarga la nueva imagen y recrea los servicios sin construir localmente:
+Para actualizar la versión desplegada, actualiza el código del repositorio, reconstruye los servicios y recrea los contenedores:
 
 ```bash
-MOVILIDAD_IMAGE=credondoc/biki-stats-core:0.3.0 docker compose pull
-MOVILIDAD_IMAGE=credondoc/biki-stats-core:0.3.0 docker compose run --rm api alembic upgrade head
-MOVILIDAD_IMAGE=credondoc/biki-stats-core:0.3.0 docker compose up -d --no-build api
-MOVILIDAD_IMAGE=credondoc/biki-stats-core:0.3.0 docker compose --profile collector up -d --no-build collector
+docker compose build api
+docker compose run --rm api alembic upgrade head
+docker compose up -d --no-build api
 ```
 
-También puedes dejar `MOVILIDAD_IMAGE=credondoc/biki-stats-core:0.3.0` en `.env` y ejecutar los comandos sin prefijar la variable. El volumen `movilidad-data` no se elimina durante la actualización, por lo que conserva el histórico.
+El volumen `movilidad-data` no se elimina durante la actualización, por lo que conserva el histórico.
 
 Después de cada cambio comprueba:
 
@@ -179,20 +226,19 @@ Después de cada cambio comprueba:
 docker compose ps
 curl https://api.aldeapucela.org/biki/api/v1/health
 docker compose logs --tail=100 api
-docker compose logs --tail=100 collector
 ```
 
 El estado de la importación inicial se puede consultar en `GET /api/v1/health`, en los campos
 `history_import_status` y `history_import_updated_at`. Un fallo del histórico no deja caída la
-API: queda registrado y se reintenta según `MOVILIDAD_HISTORY_IMPORT_RETRY_SECONDS`.
+API: queda registrado y se reintenta según `BIKI_HISTORY_IMPORT_RETRY_SECONDS`.
 
-Para volver a una versión anterior, cambia `MOVILIDAD_IMAGE` a un tag existente y repite `pull`, la migración y el reinicio. No uses `latest` en PRO si necesitas poder identificar y revertir exactamente la versión desplegada.
+Para volver a una versión anterior, cambia el código a un commit o tag existente y repite la construcción, migración y reinicio.
 
-En GitHub configura el secreto `MOVILIDAD_COLLECTOR_TOKEN` en `Settings > Secrets and variables > Actions`. Su valor debe coincidir con el token configurado en el `.env` del servidor. El workflow programado no necesita clonar el repositorio ni acceder al volumen SQLite: solo necesita conectividad HTTPS con la API.
+En GitHub configura el secreto `BIKI_COLLECTOR_TOKEN` en `Settings > Secrets and variables > Actions`. Su valor debe coincidir con el token configurado en el `.env` del servidor. El workflow programado no necesita clonar el repositorio ni acceder al volumen SQLite: solo necesita conectividad HTTPS con la API.
 
 ### Captura remota desde GitHub Actions
 
-La captura programada se solicita mediante `POST /api/v1/ops/collector/run`. El endpoint está oculto de OpenAPI y protegido con Bearer sobre HTTPS. Configura el mismo valor seguro en el servidor como `MOVILIDAD_COLLECTOR_TOKEN` y en GitHub como el secreto `MOVILIDAD_COLLECTOR_TOKEN`.
+La captura programada se solicita mediante `POST /api/v1/ops/collector/run`. El endpoint está oculto de OpenAPI y protegido con Bearer sobre HTTPS. Configura el mismo valor seguro en el servidor como `BIKI_COLLECTOR_TOKEN` y en GitHub como el secreto `BIKI_COLLECTOR_TOKEN`.
 
 La URL pública completa es:
 
@@ -205,30 +251,13 @@ El workflow programado usa `COLLECTOR_API_URL` y falla si la API devuelve un err
 ```bash
 curl --fail-with-body --silent --show-error --max-time 180 \
   --request POST \
-  --header "Authorization: Bearer ${MOVILIDAD_COLLECTOR_TOKEN}" \
+  --header "Authorization: Bearer ${BIKI_COLLECTOR_TOKEN}" \
   "https://api.aldeapucela.org/biki/api/v1/ops/collector/run"
 ```
 
-Una respuesta `200` confirma la captura y devuelve `capture_id`; `401` indica credenciales inválidas, `409` que ya hay otra captura en curso y `503` que falta configurar el token. El collector CLI y el cron local siguen disponibles como alternativa.
+Una respuesta `200` confirma la captura y devuelve `capture_id`; `401` indica credenciales inválidas, `409` que ya hay otra captura en curso y `503` que falta configurar el token. El comando CLI del collector sigue disponible para pruebas locales.
 
 ### Captura programada
 
-En producción, `.github/workflows/collector.yml` solicita la captura remota cada cinco minutos mediante la API. El runner de GitHub no necesita acceso al volumen SQLite ni al repositorio; solo necesita conectividad HTTPS con `api.aldeapucela.org` y el secreto `MOVILIDAD_COLLECTOR_TOKEN`.
-
-Para instalarlo mediante cron en un servidor Docker:
-
-1. Copia `deploy/movilidad-collector.cron` y sustituye `/opt/movilidad/biki-stats-core` por la ruta del repositorio.
-2. Instálalo para el usuario que tenga permisos para ejecutar Docker:
-
-   ```bash
-   crontab deploy/movilidad-collector.cron
-   ```
-
-3. Comprueba la entrada instalada y el log:
-
-   ```bash
-   crontab -l
-   tail -f /opt/movilidad/biki-stats-core/collector.log
-   ```
-
+En producción, `.github/workflows/collector.yml` solicita la captura remota cada cinco minutos mediante la API. El runner de GitHub no necesita acceso al volumen SQLite ni al repositorio; solo necesita conectividad HTTPS con `api.aldeapucela.org` y el secreto `BIKI_COLLECTOR_TOKEN`.
 El collector usa locks en SQLite para evitar duplicar capturas si una ejecución tarda más de cinco minutos.

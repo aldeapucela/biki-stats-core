@@ -43,9 +43,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Movilidad API",
+    title="BIKI API",
     version="0.1.0",
-    description="API de datos de movilidad de Aldea Pucela.",
+    description="API de datos de BIKI Valladolid de Aldea Pucela.",
     lifespan=lifespan,
 )
 app.add_exception_handler(ApiError, api_error_handler)

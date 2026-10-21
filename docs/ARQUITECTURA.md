@@ -24,7 +24,7 @@ GBFS -> collector -> application -> SQLite <- application <- API FastAPI
 
 ## Captura
 
-GitHub Actions programa el workflow cada cinco minutos y solicita la captura mediante `POST /api/v1/ops/collector/run` sobre HTTPS. El endpoint requiere `Authorization: Bearer` con `MOVILIDAD_COLLECTOR_TOKEN`, no aparece en OpenAPI y responde con el resultado de la captura. El retraso de algunos minutos es admisible: la frescura se mide con `observed_at` y `collected_at`.
+GitHub Actions programa el workflow cada cinco minutos y solicita la captura mediante `POST /api/v1/ops/collector/run` sobre HTTPS. El endpoint requiere `Authorization: Bearer` con `BIKI_COLLECTOR_TOKEN`, no aparece en OpenAPI y responde con el resultado de la captura. El retraso de algunos minutos es admisible: la frescura se mide con `observed_at` y `collected_at`.
 
 El collector registra cada corrida y adquiere un lock por proveedor en SQLite. La clave de observación es `provider_id + station_id + observed_at`; repetir un feed no duplica observaciones. Los fallos liberan el lock y dejan la corrida en estado `failed`.
 

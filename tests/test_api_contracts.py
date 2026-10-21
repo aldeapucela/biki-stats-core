@@ -11,7 +11,7 @@ from movilidad.infrastructure.db.repository import SqliteObservationRepository
 
 def _client_with_data(tmp_path, monkeypatch) -> TestClient:
     database = tmp_path / "contract.sqlite3"
-    settings = Settings(MOVILIDAD_DATABASE_PATH=str(database))
+    settings = Settings(BIKI_DATABASE_PATH=str(database))
     connection = connect(settings)
     ensure_schema(connection)
     repository = SqliteObservationRepository(connection)
@@ -28,7 +28,7 @@ def _client_with_data(tmp_path, monkeypatch) -> TestClient:
     )
     repository.finish_capture("fixture", "success", 2, 0)
     connection.close()
-    monkeypatch.setenv("MOVILIDAD_DATABASE_PATH", str(database))
+    monkeypatch.setenv("BIKI_DATABASE_PATH", str(database))
     get_settings.cache_clear()
     return TestClient(app)
 

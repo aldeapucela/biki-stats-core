@@ -19,11 +19,11 @@ La issue solicita un endpoint interno de la API que permita a GitHub Actions ped
 
 - Endpoint `POST /api/v1/ops/collector/run`.
 - Autenticación mediante `Authorization: Bearer <token>`.
-- Configuración del token mediante `MOVILIDAD_COLLECTOR_TOKEN`.
+- Configuración del token mediante `BIKI_COLLECTOR_TOKEN`.
 - Reutilización de `CapturePipeline`, proveedor GBFS, repositorio SQLite y locks existentes.
 - Respuestas diferenciadas para petición válida, token ausente/inválido, captura en curso y fallo de captura.
 - Actualización del workflow programado para invocar el endpoint por HTTPS con `curl`.
-- Uso de un secreto de GitHub Actions llamado `MOVILIDAD_COLLECTOR_TOKEN`.
+- Uso de un secreto de GitHub Actions llamado `BIKI_COLLECTOR_TOKEN`.
 - Documentación de configuración, despliegue, comprobación y requisitos de HTTPS/reverse proxy.
 - Tests unitarios y de API para autenticación, ejecución y errores.
 
@@ -43,7 +43,7 @@ La issue solicita un endpoint interno de la API que permita a GitHub Actions ped
 - El reverse proxy debe terminar HTTPS y reenviar el prefijo `/biki/` según la configuración del despliegue.
 - La API y el collector deben compartir `/data/movilidad.sqlite3`.
 - El pipeline existente ya registra capturas, libera locks en éxito/error y evita duplicados por proveedor.
-- GitHub Actions necesita el secreto `MOVILIDAD_COLLECTOR_TOKEN` y una URL de API configurable o documentada.
+- GitHub Actions necesita el secreto `BIKI_COLLECTOR_TOKEN` y una URL de API configurable o documentada.
 - La implementación debe partir de `main` en una rama `feat/13/endpoint-securizado-del-collector`.
 - Las modificaciones locales no relacionadas que estén pendientes en `README.md` y `docker-compose.yml` se conservarán y no se sobrescribirán.
 
@@ -51,7 +51,7 @@ La issue solicita un endpoint interno de la API que permita a GitHub Actions ped
 
 1. **Configuración y dependencia de autenticación**
 
-   - Añadir `collector_token` a `Settings`, con alias `MOVILIDAD_COLLECTOR_TOKEN`.
+   - Añadir `collector_token` a `Settings`, con alias `BIKI_COLLECTOR_TOKEN`.
    - No proporcionar un token por defecto en producción.
    - Crear una dependencia FastAPI específica que extraiga el esquema Bearer, compare el valor mediante `secrets.compare_digest` y devuelva `401` sin revelar si falta o es incorrecto.
    - No incluir el endpoint en el contrato público de lectura; se puede ocultar de OpenAPI si la decisión pendiente sobre operación interna lo confirma.
@@ -82,7 +82,7 @@ La issue solicita un endpoint interno de la API que permita a GitHub Actions ped
 
 5. **Documentación y despliegue**
 
-   - Documentar `MOVILIDAD_COLLECTOR_TOKEN` en `.env.example` sin valor real.
+   - Documentar `BIKI_COLLECTOR_TOKEN` en `.env.example` sin valor real.
    - Documentar el secreto equivalente de GitHub Actions, la URL del endpoint y una prueba `curl` segura sin mostrar el token.
    - Documentar que el endpoint solo debe publicarse detrás de HTTPS y que el proxy debe enrutar `/biki/api/v1/ops/collector/run`.
    - Actualizar la documentación del despliegue para preferir la captura remota y mantener el collector local como alternativa operativa.

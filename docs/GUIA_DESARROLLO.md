@@ -1,4 +1,4 @@
-# Guía de desarrollo · Movilidad
+# Guía de desarrollo · BIKI
 
 Esta guía aplica a **biki-stats-core** (Python/FastAPI/SQLite) y **biki-stats-web** (JavaScript vanilla/Tailwind). Buscamos que las personas voluntarias colaboren con claridad y previsibilidad.
 

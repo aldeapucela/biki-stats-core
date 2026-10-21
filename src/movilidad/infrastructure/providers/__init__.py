@@ -1,1 +1,1 @@
-"""Adaptadores de fuentes externas de movilidad."""
+"""Adaptadores de fuentes externas de BIKI."""

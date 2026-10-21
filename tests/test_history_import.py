@@ -35,7 +35,7 @@ class FakeHistorySource:
 
 
 def test_history_import_normalises_is_idempotent_and_preserves_current_station(tmp_path) -> None:
-    settings = Settings(MOVILIDAD_DATABASE_PATH=str(tmp_path / "history.sqlite3"))
+    settings = Settings(BIKI_DATABASE_PATH=str(tmp_path / "history.sqlite3"))
     source = FakeHistorySource(
         {
             "data/archivo/historico.csv": (
@@ -93,7 +93,7 @@ def test_history_import_normalises_is_idempotent_and_preserves_current_station(t
 
 
 def test_history_import_dry_run_does_not_write_data(tmp_path) -> None:
-    settings = Settings(MOVILIDAD_DATABASE_PATH=str(tmp_path / "history.sqlite3"))
+    settings = Settings(BIKI_DATABASE_PATH=str(tmp_path / "history.sqlite3"))
     source = FakeHistorySource(
         {
             "data/historico.csv": (

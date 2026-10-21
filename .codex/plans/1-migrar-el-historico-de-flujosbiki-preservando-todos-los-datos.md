@@ -54,7 +54,7 @@ El origen no declara licencia. La implementación podrá probarse en desarrollo,
 
 1. **Configuración y origen**
 
-   - Añadir configuración para activar el arranque (`MOVILIDAD_HISTORY_IMPORT_ON_STARTUP`), repositorio, rama/ref, intervalo de reintento y límites HTTP.
+   - Añadir configuración para activar el arranque (`BIKI_HISTORY_IMPORT_ON_STARTUP`), repositorio, rama/ref, intervalo de reintento y límites HTTP.
    - Compose/PRO activará el arranque automático; el valor por defecto al ejecutar la aplicación localmente será desactivado para que el desarrollo use el comando manual y los tests no dependan de red.
    - Resolver el SHA de `main` mediante GitHub, enumerar el árbol recursivo y seleccionar todos los CSV bajo `data/`. Descargar cada archivo desde la URL raw del SHA, conservando una manifest verificable.
 

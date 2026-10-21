@@ -15,7 +15,7 @@ Uso: scripts/validate.sh [opciones]
 Valida la arquitectura local sin modificar la base de datos del proyecto.
 
 Opciones:
-  --docker-build  Construye las imágenes Docker además de validar compose.
+  --docker-build  Construye manualmente la imagen Docker además de validar compose.
   --live-feed     Ejecuta una captura contra el feed GBFS configurado.
   -h, --help      Muestra esta ayuda.
 EOF
@@ -55,8 +55,8 @@ fi
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/movilidad-validate.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
-export MOVILIDAD_DATABASE_PATH="$TMP_DIR/movilidad.sqlite3"
-export MOVILIDAD_CORS_ORIGINS="http://testserver"
+export BIKI_DATABASE_PATH="$TMP_DIR/movilidad.sqlite3"
+export BIKI_CORS_ORIGINS="http://testserver"
 
 step() {
   printf '\n==> %s\n' "$1"
@@ -104,7 +104,7 @@ expected = {
     "alembic_version", "providers", "stations", "observations", "captures",
     "capture_locks", "historical_imports",
 }
-with sqlite3.connect(os.environ["MOVILIDAD_DATABASE_PATH"]) as connection:
+with sqlite3.connect(os.environ["BIKI_DATABASE_PATH"]) as connection:
     tables = {
         row[0]
         for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -121,7 +121,7 @@ step "Backup SQLite"
 import os
 import sqlite3
 
-backup_path = os.path.join(os.path.dirname(os.environ["MOVILIDAD_DATABASE_PATH"]), "backup.sqlite3")
+backup_path = os.path.join(os.path.dirname(os.environ["BIKI_DATABASE_PATH"]), "backup.sqlite3")
 with sqlite3.connect(backup_path) as connection:
     count = connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'").fetchone()[0]
 if count < 5:
@@ -153,8 +153,8 @@ if command -v docker >/dev/null 2>&1; then
   step "Configuración Docker Compose"
   docker compose config -q
   if [[ "$DOCKER_BUILD" == "1" ]]; then
-    step "Construcción de imágenes Docker"
-    docker compose build api collector
+    step "Construcción manual de la imagen Docker"
+    docker compose build api
   fi
 else
   echo "Docker no está instalado; se omiten las comprobaciones Docker." >&2

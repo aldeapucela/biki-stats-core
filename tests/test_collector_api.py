@@ -6,9 +6,9 @@ from movilidad.core.config import get_settings
 
 def _client(monkeypatch, token: str | None) -> TestClient:
     if token is None:
-        monkeypatch.delenv("MOVILIDAD_COLLECTOR_TOKEN", raising=False)
+        monkeypatch.delenv("BIKI_COLLECTOR_TOKEN", raising=False)
     else:
-        monkeypatch.setenv("MOVILIDAD_COLLECTOR_TOKEN", token)
+        monkeypatch.setenv("BIKI_COLLECTOR_TOKEN", token)
     get_settings.cache_clear()
     return TestClient(app)
 

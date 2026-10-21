@@ -1,6 +1,6 @@
 # API pública v1
 
-La API es pública, de solo lectura y sirve datos de movilidad capturados por el collector. La captura ocurre aproximadamente cada cinco minutos; las respuestas no representan tiempo real.
+La API es pública, de solo lectura y sirve datos de BIKI capturados por el collector. La captura ocurre aproximadamente cada cinco minutos; las respuestas no representan tiempo real.
 
 ## Respuesta común
 

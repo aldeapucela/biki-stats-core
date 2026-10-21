@@ -5,7 +5,7 @@ from movilidad.core.config import get_settings
 
 
 def test_health_exposes_request_id(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("MOVILIDAD_DATABASE_PATH", str(tmp_path / "api.sqlite3"))
+    monkeypatch.setenv("BIKI_DATABASE_PATH", str(tmp_path / "api.sqlite3"))
     get_settings.cache_clear()
     with TestClient(app) as client:
         response = client.get("/api/v1/health")
