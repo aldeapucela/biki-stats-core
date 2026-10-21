@@ -1,12 +1,8 @@
 # Arquitectura del backend
 
-La aplicación se divide en dos procesos operativos: `api` sirve consultas HTTP y `collector` captura datos GBFS. Ambos comparten dominio, casos de uso y repositorios, pero no comparten ciclo de vida. La API también expone un disparador operativo protegido para que GitHub Actions solicite capturas remotas sin acceder al volumen SQLite.
+La aplicación se divide en dos procesos operativos: `api` sirve consultas HTTP y `collector` captura datos GBFS. Ambos comparten dominio, casos de uso y repositorios, pero no comparten ciclo de vida. Compose ejecuta ambos servicios con una imagen y volumen SQLite compartidos. La API también expone un disparador manual opcional protegido por token.
 
 ```text
-                         GitHub Actions
-                              |
-                              | HTTPS + Bearer
-                              v
 GBFS -> collector -> application -> SQLite <- application <- API FastAPI
           |              |             |                  |
        capture_id     dominio       WAL/locks        schemas Pydantic
@@ -24,7 +20,9 @@ GBFS -> collector -> application -> SQLite <- application <- API FastAPI
 
 ## Captura
 
-GitHub Actions programa el workflow cada cinco minutos y solicita la captura mediante `POST /api/v1/ops/collector/run` sobre HTTPS. El endpoint requiere `Authorization: Bearer` con `BIKI_COLLECTOR_TOKEN`, no aparece en OpenAPI y responde con el resultado de la captura. El retraso de algunos minutos es admisible: la frescura se mide con `observed_at` y `collected_at`.
+El servicio `collector` ejecuta `movilidad-collector --loop`, sin puertos y sin dependencia de la API. Captura inmediatamente y espera `BIKI_CAPTURE_INTERVAL_SECONDS` tras cada intento; registra excepciones y reintenta tras el intervalo. SIGTERM/SIGINT permiten terminar la captura activa e interrumpen la espera. Compose concede 120 segundos de gracia (ajustables si aumenta el timeout HTTP); SIGKILL puede interrumpir una captura y no se cambia la recuperación de locks existente. La CLI sin argumentos sigue ejecutando una sola captura y propaga errores.
+
+No se necesita GitHub Actions, cron ni secretos de GitHub para capturar. El endpoint manual `POST /api/v1/ops/collector/run` requiere `Authorization: Bearer` con `BIKI_COLLECTOR_TOKEN`; sin token configurado está deshabilitado (`503`). La frescura se mide con `observed_at` y `collected_at`.
 
 El collector registra cada corrida y adquiere un lock por proveedor en SQLite. La clave de observación es `provider_id + station_id + observed_at`; repetir un feed no duplica observaciones. Los fallos liberan el lock y dejan la corrida en estado `failed`.
 
@@ -36,7 +34,7 @@ La importación inicial de `serherval/flujosbiki` descubre todos los CSV de `dat
 fijado, los procesa en streaming y registra el inventario y el resultado en
 `historical_imports`. El proveedor consultable sigue siendo `biki` y la procedencia se conserva
 en `source=flujosbiki`. La marca de importación completada vive en SQLite, por lo que sobrevive a
-recrear el contenedor. Compose puede lanzarla en segundo plano al arrancar; en desarrollo se usa
+recrear el contenedor. Solo la API de Compose la lanza en segundo plano al arrancar; el collector no importa histórico; en desarrollo se usa
 `movilidad-import-history --dry-run` o `movilidad-import-history`.
 
 El CSV no contiene anclajes libres: cuando capacidad y ambos contadores son válidos se calcula

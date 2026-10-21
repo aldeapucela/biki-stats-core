@@ -1,6 +1,0 @@
-# Captura GBFS de Movilidad cada cinco minutos.
-# Sustituye /opt/movilidad/biki-stats-core por la ruta real del despliegue.
-SHELL=/bin/sh
-PATH=/usr/local/bin:/usr/bin:/bin
-
-*/5 * * * * cd /opt/movilidad/biki-stats-core && /usr/bin/docker compose --profile collector run --rm collector >> /opt/movilidad/biki-stats-core/collector.log 2>&1
