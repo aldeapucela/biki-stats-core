@@ -116,6 +116,96 @@ def test_history_import_dry_run_does_not_write_data(tmp_path) -> None:
         )
 
 
+def test_history_import_repairs_shifted_timestamp_and_recovers_capacity(tmp_path) -> None:
+    settings = Settings(BIKI_DATABASE_PATH=str(tmp_path / "history.sqlite3"))
+    source = FakeHistorySource(
+        {
+            "data/archivo/historico.csv": (
+                "station_id,nombre,mecanicas,electricas,capacidad,timestamp\n"
+                "2,001 Fuente Dorada,3,2,2026-10-01 00:00:00\n"
+                "2,001 Fuente Dorada,4,2,27,2026-10-01 00:01:00\n"
+            )
+        }
+    )
+
+    result = run_historical_import(settings, source=source)
+
+    assert result.status == "completed"
+    assert result.accepted == 2
+    assert result.rejected == 0
+    assert result.derived == 2
+    with sqlite3.connect(settings.database_path) as connection:
+        repaired = connection.execute(
+            "SELECT mechanical_bikes, free_docks, capacity FROM observations "
+            "WHERE observed_at LIKE '2026-09-30T22:00:00%'"
+        ).fetchone()
+        assert repaired == (3, 22, 27)
+
+
+def test_history_import_uses_station_capacity_when_historical_capacity_is_stale(tmp_path) -> None:
+    settings = Settings(BIKI_DATABASE_PATH=str(tmp_path / "history.sqlite3"))
+    source = FakeHistorySource(
+        {
+            "data/historico.csv": (
+                "station_id,nombre,mecanicas,electricas,capacidad,timestamp\n"
+                "33,209 Paseo del Cauce,5,14,18,2026-10-15 03:55:28\n"
+            )
+        }
+    )
+
+    connection = connect(settings)
+    ensure_schema(connection)
+    repository = SqliteObservationRepository(connection)
+    repository.ensure_provider("biki", "BIKI Valladolid", "gbfs")
+    repository.save_station(
+        Station("biki", "33", "Paseo del Cauce", capacity=19),
+        datetime.now(timezone.utc),
+    )
+    connection.commit()
+    connection.close()
+
+    result = run_historical_import(settings, source=source)
+
+    assert result.status == "completed"
+    assert result.accepted == 1
+    assert result.rejected == 0
+    assert result.derived == 1
+    with sqlite3.connect(settings.database_path) as connection:
+        observation = connection.execute(
+            "SELECT mechanical_bikes, electric_bikes, free_docks, capacity FROM observations"
+        ).fetchone()
+        assert observation == (5, 14, 0, 19)
+
+
+def test_history_import_uses_initial_capacity_when_database_is_empty(tmp_path) -> None:
+    settings = Settings(BIKI_DATABASE_PATH=str(tmp_path / "history.sqlite3"))
+    source = FakeHistorySource(
+        {
+            "data/historico.csv": (
+                "station_id,nombre,mecanicas,electricas,capacidad,timestamp\n"
+                "33,209 Paseo del Cauce,5,14,18,2026-10-15 03:55:28\n"
+            )
+        }
+    )
+
+    result = run_historical_import(
+        settings,
+        source=source,
+        initial_capacities={"33": 19},
+    )
+
+    assert result.status == "completed"
+    assert result.accepted == 1
+    assert result.rejected == 0
+    with sqlite3.connect(settings.database_path) as connection:
+        observation = connection.execute("SELECT free_docks, capacity FROM observations").fetchone()
+        station = connection.execute(
+            "SELECT capacity FROM stations WHERE station_id = '33'"
+        ).fetchone()
+        assert observation == (0, 19)
+        assert station == (19,)
+
+
 def test_history_import_handles_ambiguous_and_nonexistent_local_time() -> None:
     ambiguous, is_ambiguous = _parse_local_timestamp("2026-10-25 02:30:00")
     assert is_ambiguous is True

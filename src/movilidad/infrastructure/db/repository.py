@@ -93,6 +93,14 @@ class SqliteObservationRepository:
             ),
         )
 
+    def station_capacities(self, provider_id: str) -> dict[str, int]:
+        rows = self.connection.execute(
+            "SELECT station_id, capacity FROM stations "
+            "WHERE provider_id = ? AND capacity IS NOT NULL",
+            (provider_id,),
+        ).fetchall()
+        return {str(row["station_id"]): int(row["capacity"]) for row in rows}
+
     def save_observation(self, observation: Observation) -> bool:
         cursor = self.connection.execute(
             """INSERT OR IGNORE INTO observations(provider_id, station_id, observed_at,

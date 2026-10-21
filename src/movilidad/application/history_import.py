@@ -8,7 +8,8 @@ import csv
 import json
 import logging
 import re
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -19,6 +20,7 @@ from movilidad.domain.entities import Capture, Observation, Station
 from movilidad.infrastructure.db.connection import connect, ensure_schema
 from movilidad.infrastructure.db.repository import SqliteObservationRepository
 from movilidad.infrastructure.history.github import GitHubHistorySource, HistorySnapshot
+from movilidad.infrastructure.providers.gbfs import GbfsProvider
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ def run_historical_import(
     dry_run: bool = False,
     force: bool = False,
     source: GitHubHistorySource | None = None,
+    initial_capacities: Mapping[str, int] | None = None,
 ) -> HistoryImportResult:
     current = settings or get_settings()
     started_at = datetime.now(timezone.utc)
@@ -90,6 +93,12 @@ def run_historical_import(
                 return HistoryImportResult(status="skipped")
             repository.ensure_provider(PROVIDER_ID, "BIKI Valladolid", "gbfs")
             repository.save_capture(Capture(import_id, PROVIDER_ID, started_at))
+            initial_capacities = _load_initial_station_capacities(
+                current,
+                repository,
+                initial_capacities,
+                fetch_current=source is None,
+            )
 
         snapshot = source_adapter.snapshot()
         counts, manifest_json = _process_snapshot(
@@ -99,6 +108,7 @@ def run_historical_import(
             import_id,
             started_at,
             dry_run=dry_run,
+            initial_capacities=initial_capacities,
         )
         if dry_run:
             return HistoryImportResult(status="simulated", commit=snapshot.commit, **counts)
@@ -156,10 +166,43 @@ def _process_snapshot(
     collected_at: datetime,
     *,
     dry_run: bool,
+    initial_capacities: Mapping[str, int] | None = None,
 ) -> tuple[dict[str, int], str]:
     counts = {"accepted": 0, "duplicate": 0, "conflict": 0, "rejected": 0, "derived": 0}
     file_stats: list[dict[str, object]] = []
-    pending = 0
+    pending_writes = 0
+    known_capacities = repository.station_capacities(PROVIDER_ID) if repository else {}
+    if initial_capacities:
+        known_capacities.update(initial_capacities)
+    authoritative_capacities = set(known_capacities)
+
+    def record_parsed(parsed: ParsedRow, stats: dict[str, object]) -> None:
+        nonlocal pending_writes
+        if parsed.observation.capacity is not None:
+            known_capacities.setdefault(parsed.observation.station_id, parsed.observation.capacity)
+        if parsed.derived_free_docks:
+            counts["derived"] += 1
+            stats["derived"] = int(stats["derived"]) + 1
+        if dry_run:
+            counts["accepted"] += 1
+            stats["accepted"] = int(stats["accepted"]) + 1
+        else:
+            assert repository is not None
+            station = parsed.station
+            if parsed.station.station_id in authoritative_capacities:
+                station = replace(
+                    station,
+                    capacity=known_capacities[parsed.station.station_id],
+                )
+            repository.save_historical_station(station, collected_at)
+            result = repository.save_historical_observation(parsed.observation)
+            counts[result] += 1
+            stats[result] = int(stats[result]) + 1
+            pending_writes += 1
+            if pending_writes >= 1000:
+                repository.connection.commit()
+                pending_writes = 0
+
     for history_file in snapshot.files:
         stats: dict[str, object] = {
             "path": history_file.path,
@@ -171,17 +214,32 @@ def _process_snapshot(
             "conflict": 0,
             "rejected": 0,
             "derived": 0,
+            "repaired": 0,
+            "capacity_overrides": 0,
             "stations": set(),
             "min_observed_at": None,
             "max_observed_at": None,
         }
+        pending_repaired: list[tuple[dict[str, str | None], int]] = []
         reader = csv.DictReader(source.stream_csv(snapshot, history_file))
         if tuple(reader.fieldnames or ()) != EXPECTED_COLUMNS:
             raise ValueError(f"cabecera inválida en {history_file.path}: {reader.fieldnames!r}")
         for row_number, row in enumerate(reader, start=2):
             stats["rows"] = int(stats["rows"]) + 1
+            normalised_row = row
+            station_capacity: int | None = None
             try:
-                parsed = _parse_values(row, collected_at, import_id)
+                normalised_row, repaired = _normalise_misaligned_row(row)
+                station_id = _required(normalised_row.get("station_id"), "station_id")
+                station_capacity = known_capacities.get(station_id)
+                parsed = _parse_values(
+                    normalised_row,
+                    collected_at,
+                    import_id,
+                    capacity_override=station_capacity if repaired else None,
+                )
+                if repaired:
+                    stats["repaired"] = int(stats["repaired"]) + 1
                 stations = stats["stations"]
                 assert isinstance(stations, set)
                 stations.add(parsed.observation.station_id)
@@ -190,28 +248,54 @@ def _process_snapshot(
                     stats["min_observed_at"] = observed
                 if stats["max_observed_at"] is None or observed > stats["max_observed_at"]:
                     stats["max_observed_at"] = observed
-                if parsed.derived_free_docks:
-                    counts["derived"] += 1
-                    stats["derived"] = int(stats["derived"]) + 1
-                if dry_run:
-                    counts["accepted"] += 1
-                    stats["accepted"] = int(stats["accepted"]) + 1
+                if repaired and parsed.observation.capacity is None:
+                    pending_repaired.append((normalised_row, row_number))
                 else:
-                    assert repository is not None
-                    repository.save_historical_station(parsed.station, collected_at)
-                    result = repository.save_historical_observation(parsed.observation)
-                    counts[result] += 1
-                    stats[result] = int(stats[result]) + 1
-                    pending += 1
-                    if pending >= 1000:
-                        repository.connection.commit()
-                        pending = 0
+                    record_parsed(parsed, stats)
             except Exception as exc:
+                if (
+                    str(exc) == "bicicletas superiores a la capacidad"
+                    and station_capacity is not None
+                ):
+                    try:
+                        parsed = _parse_values(
+                            normalised_row,
+                            collected_at,
+                            import_id,
+                            capacity_override=station_capacity,
+                        )
+                        stats["capacity_overrides"] = int(stats["capacity_overrides"]) + 1
+                        record_parsed(parsed, stats)
+                        continue
+                    except Exception as override_exc:
+                        exc = override_exc
                 counts["rejected"] += 1
                 stats["rejected"] = int(stats["rejected"]) + 1
                 if int(stats["rejected"]) <= 5:
                     logger.warning(
                         "Fila histórica rechazada",
+                        extra={
+                            "file": history_file.path,
+                            "row": row_number,
+                            "error": str(exc),
+                        },
+                    )
+        for normalised_row, row_number in pending_repaired:
+            try:
+                station_id = _required(normalised_row.get("station_id"), "station_id")
+                parsed = _parse_values(
+                    normalised_row,
+                    collected_at,
+                    import_id,
+                    capacity_override=known_capacities.get(station_id),
+                )
+                record_parsed(parsed, stats)
+            except Exception as exc:
+                counts["rejected"] += 1
+                stats["rejected"] = int(stats["rejected"]) + 1
+                if int(stats["rejected"]) <= 5:
+                    logger.warning(
+                        "Fila histórica reparada rechazada",
                         extra={
                             "file": history_file.path,
                             "row": row_number,
@@ -226,7 +310,78 @@ def _process_snapshot(
     return counts, json.dumps(file_stats, ensure_ascii=False, separators=(",", ":"))
 
 
-def _parse_values(row: dict[str, str | None], collected_at: datetime, import_id: str) -> ParsedRow:
+def _load_initial_station_capacities(
+    settings: Settings,
+    repository: SqliteObservationRepository,
+    supplied: Mapping[str, int] | None,
+    *,
+    fetch_current: bool,
+) -> dict[str, int]:
+    """Obtiene capacidades actuales antes de validar el histórico.
+
+    En una primera importación la tabla de estaciones puede estar vacía. En ese
+    caso, el feed actual es la fuente autoritativa para resolver filas cuyo
+    histórico conserva una capacidad antigua. La consulta es solo de lectura;
+    la captura normal sigue ejecutándose mediante su endpoint HTTP.
+    """
+    capacities = repository.station_capacities(PROVIDER_ID)
+    if supplied:
+        capacities.update(
+            {str(station_id): int(capacity) for station_id, capacity in supplied.items()}
+        )
+    if not fetch_current:
+        return capacities
+
+    try:
+        current_stations = GbfsProvider(
+            settings.gbfs_url,
+            settings.http_timeout_seconds,
+        ).fetch()
+    except Exception:
+        logger.warning(
+            "No se pudieron precargar las capacidades actuales desde GBFS; "
+            "se usarán las capacidades disponibles en SQLite",
+            exc_info=True,
+        )
+        return capacities
+
+    capacities.update(
+        {
+            station.station_id: station.capacity
+            for station, _ in current_stations
+            if station.capacity is not None
+        }
+    )
+    return capacities
+
+
+def _normalise_misaligned_row(
+    row: dict[str | None, str | None],
+) -> tuple[dict[str | None, str | None], bool]:
+    """Corrige en memoria el CSV antiguo con timestamp desplazado a capacidad."""
+    timestamp = row.get("timestamp")
+    candidate = row.get("capacidad")
+    if timestamp is not None and timestamp.strip():
+        return row, False
+    if candidate is None or not candidate.strip():
+        return row, False
+    try:
+        _parse_local_timestamp(candidate)
+    except ValueError:
+        return row, False
+    normalised = dict(row)
+    normalised["capacidad"] = None
+    normalised["timestamp"] = candidate
+    return normalised, True
+
+
+def _parse_values(
+    row: dict[str | None, str | None],
+    collected_at: datetime,
+    import_id: str,
+    *,
+    capacity_override: int | None = None,
+) -> ParsedRow:
     if None in row:
         raise ValueError("columnas adicionales en la fila")
     station_id = _required(row.get("station_id"), "station_id")
@@ -235,6 +390,8 @@ def _parse_values(row: dict[str, str | None], collected_at: datetime, import_id:
     mechanical = _non_negative_int(row.get("mecanicas"), "mecanicas")
     electric = _non_negative_int(row.get("electricas"), "electricas")
     capacity = _non_negative_int(row.get("capacidad"), "capacidad")
+    if capacity_override is not None:
+        capacity = capacity_override
     observed_at, ambiguous = _parse_local_timestamp(_required(row.get("timestamp"), "timestamp"))
     free_docks = None
     derived = False
