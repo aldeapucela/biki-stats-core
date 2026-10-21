@@ -146,7 +146,13 @@ docker compose ps
 docker compose logs -f api
 ```
 
-El reverse proxy debe publicar la API bajo `https://api.aldeapucela.org/biki/` y permitir el origen `https://biki.aldeapucela.org`.
+Compose publica el puerto de la API exclusivamente en `127.0.0.1` del servidor
+(`8004` por defecto, configurable con `PORT`), para que el acceso público pase por
+Nginx y no se exponga directamente el backend. Esta restricción de entrada no
+impide las conexiones salientes para consultar GBFS o importar el histórico y no
+cambia la persistencia del volumen SQLite.
+
+El reverse proxy del mismo servidor debe publicar la API bajo `https://api.aldeapucela.org/biki/` y permitir el origen `https://biki.aldeapucela.org`.
 
 ### Caché de Nginx
 

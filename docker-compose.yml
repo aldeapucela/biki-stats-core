@@ -23,7 +23,7 @@ services:
       BIKI_HISTORY_SOURCE_REF: ${BIKI_HISTORY_SOURCE_REF:-main}
       BIKI_HISTORY_IMPORT_RETRY_SECONDS: ${BIKI_HISTORY_IMPORT_RETRY_SECONDS:-300}
     ports:
-      - "${PORT:-8004}:${PORT:-8004}"
+      - "127.0.0.1:${PORT:-8004}:${PORT:-8004}"
     volumes:
       - movilidad-data:/data
     healthcheck:
