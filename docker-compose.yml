@@ -1,5 +1,6 @@
 services:
   api:
+    image: biki-stats-core:${APP_GIT_SHA:-local}
     build:
       context: .
       args:
@@ -31,6 +32,23 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    restart: unless-stopped
+
+  collector:
+    image: biki-stats-core:${APP_GIT_SHA:-local}
+    pull_policy: never
+    command: ["movilidad-collector", "--loop"]
+    environment:
+      BIKI_ENV: ${BIKI_ENV:-production}
+      BIKI_DATABASE_PATH: /data/movilidad.sqlite3
+      BIKI_GBFS_URL: ${BIKI_GBFS_URL:-https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json}
+      BIKI_CAPTURE_INTERVAL_SECONDS: ${BIKI_CAPTURE_INTERVAL_SECONDS:-300}
+      BIKI_HTTP_TIMEOUT_SECONDS: ${BIKI_HTTP_TIMEOUT_SECONDS:-20}
+      BIKI_LOG_LEVEL: ${BIKI_LOG_LEVEL:-INFO}
+      BIKI_HISTORY_IMPORT_ON_STARTUP: "false"
+    volumes:
+      - movilidad-data:/data
+    stop_grace_period: 120s
     restart: unless-stopped
 
 volumes:

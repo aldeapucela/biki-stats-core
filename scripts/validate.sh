@@ -151,7 +151,26 @@ PY
 
 if command -v docker >/dev/null 2>&1; then
   step "Configuración Docker Compose"
-  docker compose config -q
+  docker compose config --format json > "$TMP_DIR/compose.json"
+  "$PYTHON_BIN" - "$TMP_DIR/compose.json" <<'PYCOMPOSE'
+import json
+import sys
+
+with open(sys.argv[1]) as stream:
+    services = json.load(stream)["services"]
+api, collector = services["api"], services["collector"]
+assert api["image"] == collector["image"]
+assert "build" in api and "build" not in collector
+assert collector["pull_policy"] == "never"
+assert collector["command"] == ["movilidad-collector", "--loop"]
+assert not collector.get("ports") and not collector.get("healthcheck")
+assert not collector.get("depends_on")
+assert collector["volumes"] == api["volumes"]
+assert collector["environment"]["BIKI_DATABASE_PATH"] == api["environment"]["BIKI_DATABASE_PATH"]
+assert collector["environment"]["BIKI_HISTORY_IMPORT_ON_STARTUP"] == "false"
+assert api["ports"][0]["host_ip"] == "127.0.0.1"
+print("Servicios Compose e imagen/persistencia compartidas: OK")
+PYCOMPOSE
   if [[ "$DOCKER_BUILD" == "1" ]]; then
     step "Construcción manual de la imagen Docker"
     docker compose build api
