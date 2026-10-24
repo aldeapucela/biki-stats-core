@@ -9,3 +9,6 @@ backups/
 *.sqlite3
 *.sqlite3-*
 .env
+
+# Salida de depuración del importador histórico
+filas_rechazadas.csv
