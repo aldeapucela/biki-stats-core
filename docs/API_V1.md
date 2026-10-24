@@ -83,7 +83,7 @@ La distancia se calcula con Haversine, se devuelve como `distance_m` y el result
 
 - `granularity=raw`: solo observaciones reales.
 - `granularity=hour`: agrupación en horas UTC.
-- `granularity=day`: agrupación en días UTC.
+- `granularity=day`: agrupación en días naturales de Europe/Madrid (23 o 25 horas en los cambios de horario). El `timestamp` de cada punto es el inicio del día local expresado en UTC.
 - `limit`: máximo 10.000 puntos.
 - `provider_id`: por defecto `biki`.
 
