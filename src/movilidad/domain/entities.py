@@ -45,3 +45,36 @@ class Capture:
 class StationSnapshot:
     station: Station
     observation: Observation | None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryGroup:
+    """Observaciones de una franja (hora o día UTC) con la misma capacidad y anclajes libres."""
+
+    bucket: str
+    capacity: int | None
+    free_docks: int | None
+    observations: int
+    mechanical_sum: int | None
+    mechanical_count: int
+    electric_sum: int | None
+    electric_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryGroup:
+    """Observaciones de un rango con los mismos contadores; `first_observed_at` es la primera."""
+
+    capacity: int | None
+    free_docks: int | None
+    mechanical_bikes: int | None
+    electric_bikes: int | None
+    observations: int
+    first_observed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryRange:
+    first_observed_at: datetime | None
+    last_observed_at: datetime | None
+    observed_hours: int

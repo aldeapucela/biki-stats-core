@@ -23,12 +23,18 @@ from movilidad.api.routers.stations import router as stations_router
 from movilidad.application.history_import import history_import_worker
 from movilidad.core.config import get_settings
 from movilidad.core.logging import configure_logging
+from movilidad.infrastructure.db.connection import connect, init_database
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
+    connection = connect(settings)
+    try:
+        init_database(connection)
+    finally:
+        connection.close()
     worker = (
         asyncio.create_task(history_import_worker(settings))
         if settings.history_import_on_startup

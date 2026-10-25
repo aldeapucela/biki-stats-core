@@ -44,6 +44,16 @@ Las horas locales se convierten desde `Europe/Madrid` a UTC; las horas ambiguas 
 
 El backup se puede crear con `python scripts/backup_sqlite.py backups/movilidad-$(date +%F).sqlite3`. El destino debe quedar fuera del volumen de la aplicación y su restauración debe comprobarse periódicamente.
 
-En producción se ejecuta `alembic upgrade head` antes de arrancar los servicios. El arranque de la aplicación usa una creación defensiva de tablas para desarrollo local y tests.
+En producción se ejecuta `alembic upgrade head` antes de arrancar los servicios. El arranque de la aplicación (y los puntos de entrada del collector y de la importación) usa una creación defensiva de tablas y fija `journal_mode=WAL` **una sola vez** (`init_database`); las peticiones HTTP solo abren la conexión con los pragmas por conexión (`foreign_keys`, `busy_timeout`).
 
 La API pública es de solo lectura y acepta peticiones web desde `https://biki.aldeapucela.org` y los orígenes localhost configurados para desarrollo. El endpoint operativo está separado bajo `/ops` y protegido exclusivamente por Bearer; al no ser una llamada web de la aplicación, no depende de la validación de origen. El rate limiting se configura en el proxy o servidor. Las rutas de negocio y sus envoltorios JSON se definirán en la issue #4.
+
+## Rendimiento de las consultas históricas
+
+`/history` con `hour` o `day` y `/summary` no cargan las observaciones en Python: SQLite las agrupa (por franja UTC, capacidad y anclajes libres en `history`; por contadores iguales en `summary`) y el servicio reduce esos grupos. `raw` sigue devolviendo una fila por observación. Con un solo worker, el coste de una petición se reparte así (medido sobre ~66 000 observaciones por estación): antes dominaba Python (crear objetos y calcular, más de 1,5 s en 30 días) y las peticiones concurrentes se encolaban; ahora SQL agrupa en decenas de milisegundos.
+
+Los resultados son los mismos que con el cálculo anterior fila a fila (`tests/reference_history.py` lo conserva como referencia). La ocupación media se acumula en céntimos enteros; solo en un empate exacto de redondeo (p. ej. media 85,835) se repite la suma original sobre las filas de esa franja, porque ahí el resultado dependía de la coma flotante.
+
+Cada consulta deja un registro `consulta histórica` con `kind`, `station_id`, `granularity`, `duration_ms` (total), `sql_ms`, `rows` (observaciones leídas) y `groups` (grupos procesados).
+
+Para medir una versión: `python scripts/bench_history.py` genera una base sintética, levanta uvicorn con un worker y lanza clientes concurrentes. `--src` apunta al `src/` de otra versión y `--database` reutiliza la misma base para comparar. No está en el CI porque los tiempos dependen de la máquina.

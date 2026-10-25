@@ -2,11 +2,23 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from movilidad.domain.entities import Capture, Observation, Station, StationSnapshot
+from movilidad.domain.entities import (
+    Capture,
+    HistoryGroup,
+    Observation,
+    Station,
+    StationSnapshot,
+    SummaryGroup,
+    SummaryRange,
+)
 
 
 def iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_instant(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 class SqliteObservationRepository:
@@ -347,6 +359,78 @@ class SqliteObservationRepository:
             (provider_id, station_id, iso(start), iso(end)),
         ).fetchall()
         return [self._observation(row) for row in rows]
+
+    def history_groups(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime, granularity: str
+    ) -> list[HistoryGroup]:
+        """Agrega en SQLite por franja UTC (prefijo ISO de `observed_at`) y por capacidad/libres."""
+        prefix = 13 if granularity == "hour" else 10
+        rows = self.connection.execute(
+            f"""SELECT substr(observed_at, 1, {prefix}) AS bucket, capacity, free_docks,
+            COUNT(*) AS observations, SUM(mechanical_bikes) AS mechanical_sum,
+            COUNT(mechanical_bikes) AS mechanical_count, SUM(electric_bikes) AS electric_sum,
+            COUNT(electric_bikes) AS electric_count
+            FROM observations WHERE provider_id = ? AND station_id = ?
+            AND observed_at >= ? AND observed_at <= ?
+            GROUP BY bucket, capacity, free_docks""",
+            (provider_id, station_id, iso(start), iso(end)),
+        ).fetchall()
+        return [HistoryGroup(**dict(row)) for row in rows]
+
+    def occupancy_sequence(
+        self,
+        provider_id: str,
+        station_id: str,
+        start: datetime,
+        end: datetime,
+        bucket: str | None = None,
+    ) -> list[tuple[int | None, int | None]]:
+        """Capacidad y anclajes de cada observación, en orden cronológico (solo para empates).
+
+        Con `bucket` (prefijo ISO de una hora o día) se limita a esa franja.
+        """
+        low, high = iso(start), iso(end)
+        if bucket:
+            low, high = max(low, bucket), min(high, bucket + "~")  # "~" sigue a cualquier dígito/Z
+        rows = self.connection.execute(
+            """SELECT capacity, free_docks FROM observations
+            WHERE provider_id = ? AND station_id = ? AND observed_at >= ? AND observed_at <= ?
+            ORDER BY observed_at ASC""",
+            (provider_id, station_id, low, high),
+        ).fetchall()
+        return [(row["capacity"], row["free_docks"]) for row in rows]
+
+    def summary_groups(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime
+    ) -> tuple[list[SummaryGroup], SummaryRange]:
+        """Agrupa por contadores iguales: el resumen se calcula sobre ellos, no fila a fila."""
+        params = (provider_id, station_id, iso(start), iso(end))
+        where = (
+            "FROM observations WHERE provider_id = ? AND station_id = ? "
+            "AND observed_at >= ? AND observed_at <= ?"
+        )
+        rows = self.connection.execute(
+            f"""SELECT capacity, free_docks, mechanical_bikes, electric_bikes,
+            COUNT(*) AS observations, MIN(observed_at) AS first_observed_at {where}
+            GROUP BY capacity, free_docks, mechanical_bikes, electric_bikes""",
+            params,
+        ).fetchall()
+        edges = self.connection.execute(
+            f"""SELECT MIN(observed_at) AS first_observed_at, MAX(observed_at) AS last_observed_at,
+            COUNT(DISTINCT substr(observed_at, 1, 13)) AS observed_hours {where}""",
+            params,
+        ).fetchone()
+        groups = [
+            SummaryGroup(
+                **{**dict(row), "first_observed_at": _parse_instant(row["first_observed_at"])}
+            )
+            for row in rows
+        ]
+        return groups, SummaryRange(
+            first_observed_at=_parse_instant(edges["first_observed_at"]),
+            last_observed_at=_parse_instant(edges["last_observed_at"]),
+            observed_hours=edges["observed_hours"],
+        )
 
     def acquire_capture_lock(self, provider_id: str, capture_id: str) -> bool:
         try:

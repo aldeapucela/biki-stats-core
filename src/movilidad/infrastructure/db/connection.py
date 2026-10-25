@@ -5,6 +5,10 @@ from movilidad.core.config import Settings, get_settings
 
 
 def connect(settings: Settings | None = None) -> sqlite3.Connection:
+    """Abre una conexión con los pragmas que SQLite exige por conexión.
+
+    `journal_mode=WAL` se guarda en el fichero: se fija una vez en `init_database`, no aquí.
+    """
     current = settings or get_settings()
     path = Path(current.database_path)
     if str(path) != ":memory:":
@@ -13,8 +17,17 @@ def connect(settings: Settings | None = None) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
     connection.execute("PRAGMA busy_timeout=30000")
-    connection.execute("PRAGMA journal_mode=WAL")
     return connection
+
+
+def init_database(connection: sqlite3.Connection) -> None:
+    """Configuración de arranque: WAL (persistente) y creación defensiva del esquema.
+
+    Se ejecuta una vez al arrancar la API y en los puntos de entrada del collector y de la
+    importación, nunca por petición HTTP.
+    """
+    connection.execute("PRAGMA journal_mode=WAL")
+    ensure_schema(connection)
 
 
 def ensure_schema(connection: sqlite3.Connection) -> None:
