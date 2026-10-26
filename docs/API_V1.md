@@ -49,6 +49,7 @@ Los errores mantienen el mismo envoltorio:
 | `GET /api/v1/stations/nearby` | Estaciones ordenadas por distancia | `200`, `422`, `503` |
 | `GET /api/v1/stations/{station_id}/history` | Observaciones o buckets históricos | `200`, `404`, `422`, `503` |
 | `GET /api/v1/stations/{station_id}/summary` | KPIs y composición del intervalo | `200`, `404`, `422`, `503` |
+| `GET /api/v1/stations/{station_id}/analysis` | Histórico y resumen del intervalo en una operación | `200`, `404`, `422`, `503` |
 
 `/stations/nearby` precede a `/{station_id}` en el router para evitar conflictos.
 
@@ -102,6 +103,19 @@ Las medias se calculan por observación. No se interpolan huecos. En granularida
 - Buckets sin observaciones.
 
 Los datos ausentes son `null`; no se convierten en ceros. Los timestamps ambiguos heredados no se reinterpretan.
+
+## Análisis combinado
+
+`GET /api/v1/stations/{station_id}/analysis` acepta los mismos parámetros `from`, `to`, `granularity`, `limit` y `provider_id` que histórico y devuelve ambos resultados en una única operación:
+
+```json
+{
+  "history": {"station_id": "72", "points": []},
+  "summary": {"station_id": "72", "observations": 0}
+}
+```
+
+La ruta existe para evitar que los clientes tengan que leer dos veces el mismo intervalo. Las rutas independientes `/history` y `/summary` se mantienen por compatibilidad.
 
 ## Errores y frescura
 

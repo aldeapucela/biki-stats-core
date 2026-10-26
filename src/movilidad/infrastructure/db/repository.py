@@ -348,6 +348,87 @@ class SqliteObservationRepository:
         ).fetchall()
         return [self._observation(row) for row in rows]
 
+    def station_history_buckets(
+        self,
+        provider_id: str,
+        station_id: str,
+        start: datetime,
+        end: datetime,
+        granularity: str,
+    ) -> list[sqlite3.Row]:
+        format_value = "%Y-%m-%dT%H:00:00Z" if granularity == "hour" else "%Y-%m-%dT00:00:00Z"
+        occupancy = (
+            "CASE WHEN capacity > 0 AND free_docks BETWEEN 0 AND capacity "
+            "THEN ROUND((capacity - free_docks) * 100.0 / capacity, 2) END"
+        )
+        rows = self.connection.execute(
+            f"""SELECT strftime(?, observed_at) AS bucket,
+            ROUND(AVG(mechanical_bikes), 2) AS mechanical,
+            ROUND(AVG(electric_bikes), 2) AS electric,
+            ROUND(AVG(free_docks), 2) AS free_docks,
+            ROUND(AVG(capacity), 2) AS capacity,
+            ROUND(AVG({occupancy}), 2) AS occupancy_percent,
+            COUNT(*) AS observations
+            FROM observations
+            WHERE provider_id = ? AND station_id = ?
+            AND observed_at >= ? AND observed_at <= ?
+            GROUP BY bucket ORDER BY bucket ASC""",
+            (format_value, provider_id, station_id, iso(start), iso(end)),
+        ).fetchall()
+        return list(rows)
+
+    def station_summary_aggregate(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime
+    ) -> dict[str, object] | None:
+        occupancy = (
+            "CASE WHEN capacity > 0 AND free_docks BETWEEN 0 AND capacity "
+            "THEN ROUND((capacity - free_docks) * 100.0 / capacity, 2) END"
+        )
+        row = self.connection.execute(
+            f"""SELECT COUNT(*) AS observations,
+            ROUND(AVG(mechanical_bikes), 2) AS mechanical_average,
+            ROUND(AVG(electric_bikes), 2) AS electric_average,
+            ROUND(AVG(free_docks), 2) AS free_docks_average,
+            ROUND(AVG(CASE WHEN mechanical_bikes IS NOT NULL
+                AND electric_bikes IS NOT NULL
+                THEN mechanical_bikes + electric_bikes END), 2) AS total_bikes_average,
+            ROUND(AVG({occupancy}), 2) AS average_percent,
+            MIN({occupancy}) AS minimum_percent,
+            MAX({occupancy}) AS maximum_percent,
+            MIN(observed_at) AS first_observed_at,
+            MAX(observed_at) AS last_observed_at,
+            COUNT(DISTINCT strftime('%Y-%m-%dT%H:00:00Z', observed_at)) AS hourly_buckets
+            FROM observations
+            WHERE provider_id = ? AND station_id = ?
+            AND observed_at >= ? AND observed_at <= ?""",
+            (provider_id, station_id, iso(start), iso(end)),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["observations"] == 0:
+            values = dict(row)
+            values["minimum_at"] = None
+            values["maximum_at"] = None
+            return values
+        minimum_at = self.connection.execute(
+            f"""SELECT observed_at FROM observations
+            WHERE provider_id = ? AND station_id = ?
+            AND observed_at >= ? AND observed_at <= ?
+            AND {occupancy} = ? ORDER BY observed_at ASC LIMIT 1""",
+            (provider_id, station_id, iso(start), iso(end), row["minimum_percent"]),
+        ).fetchone()
+        maximum_at = self.connection.execute(
+            f"""SELECT observed_at FROM observations
+            WHERE provider_id = ? AND station_id = ?
+            AND observed_at >= ? AND observed_at <= ?
+            AND {occupancy} = ? ORDER BY observed_at ASC LIMIT 1""",
+            (provider_id, station_id, iso(start), iso(end), row["maximum_percent"]),
+        ).fetchone()
+        values = dict(row)
+        values["minimum_at"] = minimum_at["observed_at"] if minimum_at else None
+        values["maximum_at"] = maximum_at["observed_at"] if maximum_at else None
+        return values
+
     def acquire_capture_lock(
         self, provider_id: str, capture_id: str, stale_after_seconds: int = 900
     ) -> bool:

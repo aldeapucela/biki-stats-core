@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime
 from typing import Protocol, Sequence
 
@@ -43,6 +44,19 @@ class ObservationRepository(Protocol):
     def station_history(
         self, provider_id: str, station_id: str, start: datetime, end: datetime
     ) -> Sequence[Observation]: ...
+
+    def station_history_buckets(
+        self,
+        provider_id: str,
+        station_id: str,
+        start: datetime,
+        end: datetime,
+        granularity: str,
+    ) -> Sequence[sqlite3.Row]: ...
+
+    def station_summary_aggregate(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime
+    ) -> dict[str, object] | None: ...
 
     def acquire_capture_lock(self, provider_id: str, capture_id: str) -> bool: ...
 

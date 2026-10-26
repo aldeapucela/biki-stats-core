@@ -47,3 +47,17 @@ def test_fresh_capture_lock_is_respected(connection) -> None:
     repository.ensure_provider("biki", "BIKI Valladolid", "gbfs")
     assert repository.acquire_capture_lock("biki", "first") is True
     assert repository.acquire_capture_lock("biki", "second") is False
+
+
+def test_history_range_uses_station_time_index(connection) -> None:
+    plan = connection.execute(
+        "EXPLAIN QUERY PLAN SELECT observed_at FROM observations "
+        "WHERE provider_id = ? AND station_id = ? AND observed_at >= ? AND observed_at <= ?",
+        ("biki", "1", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"),
+    ).fetchall()
+
+    assert any(
+        "idx_observations_station_time" in row[3]
+        or "idx_observations_station_history_covering" in row[3]
+        for row in plan
+    )
