@@ -2,12 +2,15 @@ import logging
 import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
+from datetime import time as datetime_time
 from threading import Lock
+from zoneinfo import ZoneInfo
 
 from movilidad.application.ports import ObservationRepository
 from movilidad.domain.entities import Observation, StationSnapshot
 from movilidad.domain.rules import data_age_seconds, haversine_meters, is_stale, occupancy_percent
 
+LOCAL_ZONE = ZoneInfo("Europe/Madrid")
 logger = logging.getLogger(__name__)
 
 
@@ -100,6 +103,10 @@ class CurrentStationsService:
             observations = self.repository.station_history(provider_id, station_id, start, end)
             points = aggregate_history(observations, start, end, granularity)
             processed = len(observations)
+        elif granularity == "day":
+            observations = self.repository.station_history(provider_id, station_id, start, end)
+            points = aggregate_history(observations, start, end, granularity)
+            processed = len(observations)
         else:
             rows = self.repository.station_history_buckets(
                 provider_id, station_id, start, end, granularity
@@ -166,6 +173,11 @@ class CurrentStationsService:
 
         started_at = time.perf_counter()
         if granularity == "raw":
+            observations = self.repository.station_history(provider_id, station_id, start, end)
+            points = aggregate_history(observations, start, end, granularity)
+            summary = summary_from_observations(provider_id, station_id, start, end, observations)
+            observation_count = len(observations)
+        elif granularity == "day":
             observations = self.repository.station_history(provider_id, station_id, start, end)
             points = aggregate_history(observations, start, end, granularity)
             summary = summary_from_observations(provider_id, station_id, start, end, observations)
@@ -338,10 +350,9 @@ def aggregate_bucket_rows(rows, start: datetime, end: datetime, granularity: str
     }
     points = []
     bucket_start = _floor_datetime(start, granularity)
-    step = timedelta(hours=1) if granularity == "hour" else timedelta(days=1)
     while bucket_start <= end:
         points.append(grouped.get(bucket_start, _empty_bucket(bucket_start)))
-        bucket_start += step
+        bucket_start = _next_bucket(bucket_start, granularity)
     return points
 
 
@@ -358,12 +369,11 @@ def _empty_bucket(timestamp: datetime) -> dict[str, object]:
 
 
 def _bucket_count(start: datetime, end: datetime, granularity: str) -> int:
-    step = timedelta(hours=1) if granularity == "hour" else timedelta(days=1)
     current = _floor_datetime(start, granularity)
     count = 0
     while current <= end:
         count += 1
-        current += step
+        current = _next_bucket(current, granularity)
     return count
 
 
@@ -408,12 +418,11 @@ def aggregate_history(
 ) -> list[dict[str, object]]:
     if granularity == "raw":
         return [_point(observation) for observation in observations]
-    step = timedelta(hours=1) if granularity == "hour" else timedelta(days=1)
     bucket_start = _floor_datetime(start, granularity)
     grouped: dict[datetime, list[Observation]] = {}
     while bucket_start <= end:
         grouped[bucket_start] = []
-        bucket_start += step
+        bucket_start = _next_bucket(bucket_start, granularity)
     for observation in observations:
         key = _floor_datetime(observation.observed_at, granularity)
         if key in grouped:
@@ -464,10 +473,22 @@ def _aggregate_bucket(
 
 
 def _floor_datetime(value: datetime, granularity: str) -> datetime:
-    value = value.astimezone(timezone.utc)
+    """Trunca a la hora UTC o al día natural de Europe/Madrid; devuelve siempre UTC."""
     if granularity == "day":
-        return value.replace(hour=0, minute=0, second=0, microsecond=0)
-    return value.replace(minute=0, second=0, microsecond=0)
+        local = value.astimezone(LOCAL_ZONE)
+        midnight = datetime.combine(local.date(), datetime_time.min, tzinfo=LOCAL_ZONE)
+        return midnight.astimezone(timezone.utc)
+    return value.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+
+def _next_bucket(bucket_start: datetime, granularity: str) -> datetime:
+    if granularity == "day":
+        # Se avanza por fecha local: los días de cambio horario duran 23 o 25 horas.
+        next_date = bucket_start.astimezone(LOCAL_ZONE).date() + timedelta(days=1)
+        return datetime.combine(next_date, datetime_time.min, tzinfo=LOCAL_ZONE).astimezone(
+            timezone.utc
+        )
+    return bucket_start + timedelta(hours=1)
 
 
 def _values(observations: Sequence[Observation], name: str) -> list[float]:
