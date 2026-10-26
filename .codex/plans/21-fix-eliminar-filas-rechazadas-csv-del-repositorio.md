@@ -30,6 +30,10 @@ Excluido:
 - Cambios en `docs/PROCEDENCIA_DATOS.md` o en la licencia de datos.
 - Ramas, commits, PR y cualquier modificación distinta de este documento mientras no exista autorización expresa.
 
+Ampliación autorizada durante la revisión de la PR:
+
+- Estabilizar `tests/test_api_contracts.py`, cuya prueba de análisis histórico dependía de la hora real de ejecución y fallaba en la rama base fuera del minuto `:00`. La corrección fija la fecha del fixture y no cambia el comportamiento de producción.
+
 ## Contexto y dependencias
 
 - El repositorio es `biki-stats-core`; la issue pertenece al repositorio correcto para backend y datos.
@@ -66,6 +70,7 @@ Resultado de esta implementación:
 - `git check-ignore -v filas_rechazadas.csv` confirma la regla exacta de `.gitignore`.
 - `git diff --check --cached` termina correctamente.
 - El cambio de implementación afecta únicamente a `.gitignore` y a la eliminación del CSV; se conservaron los artefactos no relacionados ya presentes en el árbol.
+- La prueba de contrato se ejecuta con una fecha fija para que sus buckets horarios sean deterministas.
 
 ## Riesgos y criterios de aceptación
 
