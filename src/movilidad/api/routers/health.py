@@ -17,7 +17,7 @@ router = APIRouter(tags=["health"])
 def health(request: Request, connection: sqlite3.Connection = Depends(get_connection)):
     connection.execute("SELECT 1").fetchone()
     settings = get_settings()
-    import_state = history_import_status(settings)
+    import_state = history_import_status(connection=connection)
     return success(
         request,
         HealthData(

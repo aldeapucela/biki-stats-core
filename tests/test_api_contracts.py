@@ -62,6 +62,27 @@ def test_nearby_history_summary_and_cache(tmp_path, monkeypatch) -> None:
         assert summary.status_code == 200
         assert summary.json()["data"]["observations"] == 2
 
+        analysis = client.get(f"/api/v1/stations/1/analysis?from={start}&to={end}&granularity=hour")
+        assert analysis.status_code == 200
+        analysis_data = analysis.json()["data"]
+        assert len(analysis_data["history"]["points"]) == 2
+        assert analysis_data["history"]["points"][0]["observations"] == 0
+        assert analysis_data["history"]["points"][1]["observations"] == 2
+        assert analysis_data["summary"]["observations"] == 2
+        assert analysis_data["summary"]["occupancy"]["average_percent"] == 50.0
+
+        raw_analysis = client.get(
+            f"/api/v1/stations/1/analysis?from={start}&to={end}&granularity=raw"
+        )
+        assert raw_analysis.status_code == 200
+        assert len(raw_analysis.json()["data"]["history"]["points"]) == 2
+
+        analysis_cached = client.get(
+            f"/api/v1/stations/1/analysis?from={start}&to={end}&granularity=hour",
+            headers={"If-None-Match": analysis.headers["etag"]},
+        )
+        assert analysis_cached.status_code == 304
+
         etag = nearby.headers["etag"]
         cached = client.get(
             "/api/v1/stations/nearby?lat=41.65&lon=-4.72&radius_m=1000",

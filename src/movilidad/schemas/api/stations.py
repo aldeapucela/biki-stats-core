@@ -100,3 +100,8 @@ class SummaryData(BaseModel):
     first_observed_at: datetime | None
     last_observed_at: datetime | None
     missing_buckets: int
+
+
+class AnalysisData(BaseModel):
+    history: HistoryData
+    summary: SummaryData
