@@ -71,6 +71,7 @@ required_files=(
   migrations/env.py
   migrations/versions/0001_initial.py
   migrations/versions/0002_historical_import.py
+  migrations/versions/0003_history_covering_index.py
   src/movilidad/api/main.py
   src/movilidad/application/history_import.py
   src/movilidad/collector/main.py

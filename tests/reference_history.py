@@ -6,9 +6,13 @@ implementación nueva devuelve exactamente los mismos resultados (issue #20).
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
+from datetime import time as datetime_time
+from zoneinfo import ZoneInfo
 
 from movilidad.domain.entities import Observation
 from movilidad.domain.rules import occupancy_percent
+
+LOCAL_ZONE = ZoneInfo("Europe/Madrid")
 
 
 def reference_history(
@@ -86,12 +90,11 @@ def aggregate_history(
 ) -> list[dict[str, object]]:
     if granularity == "raw":
         return [_point(observation) for observation in observations]
-    step = timedelta(hours=1) if granularity == "hour" else timedelta(days=1)
     bucket_start = _floor_datetime(start, granularity)
     grouped: dict[datetime, list[Observation]] = {}
     while bucket_start <= end:
         grouped[bucket_start] = []
-        bucket_start += step
+        bucket_start = _next_bucket(bucket_start, granularity)
     for observation in observations:
         key = _floor_datetime(observation.observed_at, granularity)
         if key in grouped:
@@ -144,8 +147,19 @@ def _aggregate_bucket(
 def _floor_datetime(value: datetime, granularity: str) -> datetime:
     value = value.astimezone(timezone.utc)
     if granularity == "day":
-        return value.replace(hour=0, minute=0, second=0, microsecond=0)
+        local = value.astimezone(LOCAL_ZONE)
+        midnight = datetime.combine(local.date(), datetime_time.min, tzinfo=LOCAL_ZONE)
+        return midnight.astimezone(timezone.utc)
     return value.replace(minute=0, second=0, microsecond=0)
+
+
+def _next_bucket(value: datetime, granularity: str) -> datetime:
+    if granularity == "day":
+        next_date = value.astimezone(LOCAL_ZONE).date() + timedelta(days=1)
+        return datetime.combine(next_date, datetime_time.min, tzinfo=LOCAL_ZONE).astimezone(
+            timezone.utc
+        )
+    return value + timedelta(hours=1)
 
 
 def _values(observations: Sequence[Observation], name: str) -> list[float]:

@@ -8,6 +8,7 @@ import csv
 import json
 import logging
 import re
+import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -451,7 +452,12 @@ def _parse_local_timestamp(value: str) -> tuple[datetime, bool]:
     return first.astimezone(timezone.utc), ambiguous
 
 
-def history_import_status(settings: Settings | None = None) -> dict[str, object] | None:
+def history_import_status(
+    settings: Settings | None = None,
+    connection: sqlite3.Connection | None = None,
+) -> dict[str, object] | None:
+    if connection is not None:
+        return SqliteObservationRepository(connection).historical_import_status(SOURCE_KEY)
     current = settings or get_settings()
     connection = connect(current)
     init_database(connection)

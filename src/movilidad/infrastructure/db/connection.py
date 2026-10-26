@@ -30,6 +30,15 @@ def init_database(connection: sqlite3.Connection) -> None:
     ensure_schema(connection)
 
 
+def initialize_database(settings: Settings | None = None) -> None:
+    """Inicializa SQLite una vez por proceso, fuera del camino de cada petición."""
+    connection = connect(settings)
+    try:
+        init_database(connection)
+    finally:
+        connection.close()
+
+
 def ensure_schema(connection: sqlite3.Connection) -> None:
     """Arranque seguro para desarrollo; producción debe ejecutar Alembic explícitamente."""
     connection.executescript(
@@ -64,6 +73,11 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_observations_station_time
             ON observations(provider_id, station_id, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_observations_station_history_covering
+            ON observations(
+                provider_id, station_id, observed_at,
+                mechanical_bikes, electric_bikes, free_docks, capacity
+            );
         CREATE INDEX IF NOT EXISTS idx_observations_collected_at ON observations(collected_at);
         CREATE TABLE IF NOT EXISTS historical_imports (
             source_key TEXT PRIMARY KEY,

@@ -21,13 +21,14 @@ from movilidad.api.routers.collector import router as collector_router
 from movilidad.api.routers.health import router as health_router
 from movilidad.api.routers.stations import router as stations_router
 from movilidad.application.history_import import history_import_worker
+from movilidad.application.services import AnalysisCache
 from movilidad.core.config import get_settings
 from movilidad.core.logging import configure_logging
 from movilidad.infrastructure.db.connection import connect, init_database
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
     connection = connect(settings)
@@ -35,6 +36,7 @@ async def lifespan(_: FastAPI):
         init_database(connection)
     finally:
         connection.close()
+    app.state.analysis_cache = AnalysisCache()
     worker = (
         asyncio.create_task(history_import_worker(settings))
         if settings.history_import_on_startup

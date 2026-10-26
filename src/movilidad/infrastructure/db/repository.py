@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from movilidad.domain.entities import (
@@ -432,11 +432,29 @@ class SqliteObservationRepository:
             observed_hours=edges["observed_hours"],
         )
 
-    def acquire_capture_lock(self, provider_id: str, capture_id: str) -> bool:
+    def acquire_capture_lock(
+        self, provider_id: str, capture_id: str, stale_after_seconds: int = 900
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        cutoff = iso(now - timedelta(seconds=stale_after_seconds))
         try:
+            orphans = self.connection.execute(
+                "SELECT capture_id FROM capture_locks WHERE provider_id = ? AND acquired_at < ?",
+                (provider_id, cutoff),
+            ).fetchall()
+            for orphan in orphans:
+                self.connection.execute(
+                    "UPDATE captures SET finished_at = ?, status = 'failed', "
+                    "error_message = 'lock caducado: la captura no terminó' "
+                    "WHERE capture_id = ? AND status = 'running'",
+                    (iso(now), orphan["capture_id"]),
+                )
+                self.connection.execute(
+                    "DELETE FROM capture_locks WHERE capture_id = ?", (orphan["capture_id"],)
+                )
             self.connection.execute(
                 "INSERT INTO capture_locks(provider_id, capture_id, acquired_at) VALUES (?, ?, ?)",
-                (provider_id, capture_id, iso(datetime.now(timezone.utc))),
+                (provider_id, capture_id, iso(now)),
             )
             self.connection.commit()
             return True

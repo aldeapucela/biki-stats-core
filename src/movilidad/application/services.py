@@ -1,8 +1,11 @@
 import logging
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta, timezone
+from datetime import time as datetime_time
 from fractions import Fraction
+from threading import Lock
 from time import perf_counter
+from zoneinfo import ZoneInfo
 
 from movilidad.application.ports import ObservationRepository
 from movilidad.domain.entities import (
@@ -15,11 +18,42 @@ from movilidad.domain.entities import (
 from movilidad.domain.rules import data_age_seconds, haversine_meters, is_stale, occupancy_percent
 
 logger = logging.getLogger("movilidad.history")
+LOCAL_ZONE = ZoneInfo("Europe/Madrid")
+
+
+class AnalysisCache:
+    def __init__(self, ttl_seconds: float = 30, max_entries: int = 256) -> None:
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
+        self._entries: dict[tuple[object, ...], tuple[float, dict[str, object]]] = {}
+        self._lock = Lock()
+
+    def get(self, key: tuple[object, ...]) -> dict[str, object] | None:
+        now = perf_counter()
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if expires_at <= now:
+                self._entries.pop(key, None)
+                return None
+            return value
+
+    def set(self, key: tuple[object, ...], value: dict[str, object]) -> None:
+        with self._lock:
+            if len(self._entries) >= self.max_entries:
+                oldest_key = min(self._entries, key=lambda item: self._entries[item][0])
+                self._entries.pop(oldest_key, None)
+            self._entries[key] = (perf_counter() + self.ttl_seconds, value)
 
 
 class CurrentStationsService:
-    def __init__(self, repository: ObservationRepository) -> None:
+    def __init__(
+        self, repository: ObservationRepository, analysis_cache: AnalysisCache | None = None
+    ) -> None:
         self.repository = repository
+        self.analysis_cache = analysis_cache
 
     def list_current(
         self,
@@ -76,6 +110,11 @@ class CurrentStationsService:
             observations = self.repository.station_history(provider_id, station_id, start, end)
             sql_ms = (perf_counter() - started) * 1000
             points = [_point(observation) for observation in observations]
+            rows = groups = len(observations)
+        elif granularity == "day":
+            observations = self.repository.station_history(provider_id, station_id, start, end)
+            sql_ms = (perf_counter() - started) * 1000
+            points = aggregate_history(observations, start, end, granularity)
             rows = groups = len(observations)
         else:
             fallback_sql_seconds = 0.0
@@ -142,6 +181,31 @@ class CurrentStationsService:
         sql_ms = (group_sql_seconds + fallback_sql_seconds) * 1000
         rows = int(result["observations"])  # type: ignore[call-overload]
         _log_query("summary", provider_id, station_id, None, started, sql_ms, rows, len(groups))
+        return result
+
+    def analysis(
+        self,
+        provider_id: str,
+        station_id: str,
+        start: datetime,
+        end: datetime,
+        granularity: str,
+        limit: int,
+    ) -> dict[str, object] | None:
+        if not self.repository.station_exists(provider_id, station_id):
+            return None
+        key = (provider_id, station_id, start, end, granularity, limit)
+        if self.analysis_cache is not None:
+            cached = self.analysis_cache.get(key)
+            if cached is not None:
+                return cached
+        history = self.history(provider_id, station_id, start, end, granularity, limit)
+        summary = self.summary(provider_id, station_id, start, end)
+        if history is None or summary is None:
+            return None
+        result = {"history": history, "summary": summary}
+        if self.analysis_cache is not None:
+            self.analysis_cache.set(key, result)
         return result
 
 
@@ -383,8 +447,67 @@ def _point(observation: Observation) -> dict[str, object]:
 def _floor_datetime(value: datetime, granularity: str) -> datetime:
     value = value.astimezone(timezone.utc)
     if granularity == "day":
-        return value.replace(hour=0, minute=0, second=0, microsecond=0)
+        local = value.astimezone(LOCAL_ZONE)
+        midnight = datetime.combine(local.date(), datetime_time.min, tzinfo=LOCAL_ZONE)
+        return midnight.astimezone(timezone.utc)
     return value.replace(minute=0, second=0, microsecond=0)
+
+
+def aggregate_history(
+    observations: Sequence[Observation], start: datetime, end: datetime, granularity: str
+) -> list[dict[str, object]]:
+    if granularity == "raw":
+        return [_point(observation) for observation in observations]
+    points: list[dict[str, object]] = []
+    moment = _floor_datetime(start, granularity)
+    while moment <= end:
+        values = [
+            observation
+            for observation in observations
+            if _floor_datetime(observation.observed_at, granularity) == moment
+        ]
+        points.append(_aggregate_bucket(moment, values))
+        moment = _next_bucket(moment, granularity)
+    return points
+
+
+def _next_bucket(moment: datetime, granularity: str) -> datetime:
+    if granularity == "day":
+        next_date = moment.astimezone(LOCAL_ZONE).date() + timedelta(days=1)
+        return datetime.combine(next_date, datetime_time.min, tzinfo=LOCAL_ZONE).astimezone(
+            timezone.utc
+        )
+    return moment + timedelta(hours=1)
+
+
+def _aggregate_bucket(
+    timestamp: datetime, observations: Sequence[Observation]
+) -> dict[str, object]:
+    def values(name: str) -> list[float]:
+        return [
+            float(value)
+            for value in (getattr(item, name) for item in observations)
+            if value is not None
+        ]
+
+    occupancy = [
+        value
+        for value in (occupancy_percent(item.capacity, item.free_docks) for item in observations)
+        if value is not None
+    ]
+    return {
+        "timestamp": timestamp,
+        "mechanical": _mean(values("mechanical_bikes")),
+        "electric": _mean(values("electric_bikes")),
+        "free_docks": _mean(values("free_docks")),
+        "capacity": _mean(values("capacity")),
+        "occupancy_percent": _mean(occupancy),
+        "observations": len(observations),
+    }
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    return round(sum(values) / len(values), 2) if values else None
 
 
 def _mean_of(total: int, count: int) -> float | None:
