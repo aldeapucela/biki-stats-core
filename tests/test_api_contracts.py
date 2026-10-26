@@ -8,6 +8,8 @@ from movilidad.domain.entities import Capture, Observation, Station
 from movilidad.infrastructure.db.connection import connect, ensure_schema
 from movilidad.infrastructure.db.repository import SqliteObservationRepository
 
+FIXTURE_NOW = datetime(2026, 1, 1, 12, 5, tzinfo=timezone.utc)
+
 
 def _client_with_data(tmp_path, monkeypatch) -> TestClient:
     database = tmp_path / "contract.sqlite3"
@@ -16,7 +18,7 @@ def _client_with_data(tmp_path, monkeypatch) -> TestClient:
     ensure_schema(connection)
     repository = SqliteObservationRepository(connection)
     repository.ensure_provider("biki", "BIKI Valladolid", "gbfs")
-    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    now = FIXTURE_NOW
     repository.save_capture(Capture("fixture", "biki", now))
     repository.acquire_capture_lock("biki", "fixture")
     repository.save_station(Station("biki", "1", "Fuente Dorada", 41.65, -4.72, 10), now)
@@ -53,8 +55,8 @@ def test_nearby_history_summary_and_cache(tmp_path, monkeypatch) -> None:
         assert nearby.status_code == 200
         assert nearby.json()["data"][0]["distance_m"] == 0
 
-        start = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
-        end = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        start = (FIXTURE_NOW - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        end = (FIXTURE_NOW + timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
         history = client.get(f"/api/v1/stations/1/history?from={start}&to={end}&granularity=raw")
         assert history.status_code == 200
         assert len(history.json()["data"]["points"]) == 2
