@@ -111,25 +111,28 @@ class CurrentStationsService:
             sql_ms = (perf_counter() - started) * 1000
             points = [_point(observation) for observation in observations]
             rows = groups = len(observations)
-        elif granularity == "day":
-            observations = self.repository.station_history(provider_id, station_id, start, end)
-            sql_ms = (perf_counter() - started) * 1000
-            points = aggregate_history(observations, start, end, granularity)
-            rows = groups = len(observations)
         else:
             fallback_sql_seconds = 0.0
 
             def occupancy_sequence(bucket: str) -> OccupancyRows:
                 nonlocal fallback_sql_seconds
                 fallback_started = perf_counter()
-                rows = self.repository.occupancy_sequence(
-                    provider_id, station_id, start, end, bucket
-                )
+                if granularity == "day":  # `bucket` es una fecha de Europe/Madrid
+                    day_start, day_end = _madrid_day_bounds(bucket)
+                    rows = self.repository.occupancy_sequence(
+                        provider_id, station_id, max(start, day_start), min(end, day_end)
+                    )
+                else:
+                    rows = self.repository.occupancy_sequence(
+                        provider_id, station_id, start, end, bucket
+                    )
                 fallback_sql_seconds += perf_counter() - fallback_started
                 return rows
 
+            # El día de Madrid empieza en una hora entera UTC: se agrupa por hora en SQLite y
+            # las horas se reparten por día en Python.
             history_groups = self.repository.history_groups(
-                provider_id, station_id, start, end, granularity
+                provider_id, station_id, start, end, "hour"
             )
             group_sql_seconds = perf_counter() - started
             points = aggregate_groups(
@@ -259,18 +262,35 @@ def aggregate_groups(
     """
     totals: dict[str, _BucketTotals] = {}
     for group in groups:
-        total = totals.setdefault(group.bucket, _BucketTotals())
+        key = group.bucket if granularity == "hour" else _madrid_day_of_hour(group.bucket)
+        total = totals.setdefault(key, _BucketTotals())
         total.add(group)
-    step = timedelta(hours=1) if granularity == "hour" else timedelta(days=1)
-    pattern = "%Y-%m-%dT%H" if granularity == "hour" else "%Y-%m-%d"
     points: list[dict[str, object]] = []
     moment = _floor_datetime(start, granularity)
     while moment <= end:
-        key = moment.strftime(pattern)
+        key = (
+            moment.strftime("%Y-%m-%dT%H")
+            if granularity == "hour"
+            else moment.astimezone(LOCAL_ZONE).strftime("%Y-%m-%d")
+        )
         total = totals.get(key) or _BucketTotals()
         points.append(total.point(moment, lambda key=key: sequence(key)))
-        moment += step
+        moment = _next_bucket(moment, granularity)
     return points
+
+
+def _madrid_day_of_hour(bucket: str) -> str:
+    """Fecha de Europe/Madrid de una hora UTC `YYYY-MM-DDTHH`."""
+    hour = datetime.strptime(bucket, "%Y-%m-%dT%H").replace(tzinfo=timezone.utc)
+    return hour.astimezone(LOCAL_ZONE).strftime("%Y-%m-%d")
+
+
+def _madrid_day_bounds(day: str) -> tuple[datetime, datetime]:
+    """Primer y último instante (UTC) de una fecha de Europe/Madrid, con sus 23, 24 o 25 h."""
+    first = datetime.strptime(day, "%Y-%m-%d").date()
+    low = datetime.combine(first, datetime_time.min, tzinfo=LOCAL_ZONE)
+    high = datetime.combine(first + timedelta(days=1), datetime_time.min, tzinfo=LOCAL_ZONE)
+    return low.astimezone(timezone.utc), high.astimezone(timezone.utc) - timedelta(microseconds=1)
 
 
 class _BucketTotals:
@@ -458,17 +478,16 @@ def aggregate_history(
 ) -> list[dict[str, object]]:
     if granularity == "raw":
         return [_point(observation) for observation in observations]
-    points: list[dict[str, object]] = []
+    grouped: dict[datetime, list[Observation]] = {}
     moment = _floor_datetime(start, granularity)
     while moment <= end:
-        values = [
-            observation
-            for observation in observations
-            if _floor_datetime(observation.observed_at, granularity) == moment
-        ]
-        points.append(_aggregate_bucket(moment, values))
+        grouped[moment] = []
         moment = _next_bucket(moment, granularity)
-    return points
+    for observation in observations:
+        key = _floor_datetime(observation.observed_at, granularity)
+        if key in grouped:
+            grouped[key].append(observation)
+    return [_aggregate_bucket(timestamp, values) for timestamp, values in grouped.items()]
 
 
 def _next_bucket(moment: datetime, granularity: str) -> datetime:

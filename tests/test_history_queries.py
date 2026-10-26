@@ -111,6 +111,43 @@ def test_summary_matches_reference_implementation(connection, seed) -> None:
         )
 
 
+def test_day_history_across_dst_matches_reference(connection) -> None:
+    """El 25-oct-2026 Madrid pasa de CEST a CET: ese día dura 25 h y empieza a las 22:00 UTC."""
+    rng = random.Random(11)
+    repository = SqliteObservationRepository(connection)
+    repository.ensure_provider("biki", "BIKI Valladolid", "gbfs")
+    repository.save_station(Station("biki", "1", "Fuente Dorada", 41.65, -4.72, 20), START)
+    first = datetime(2026, 10, 23, 20, 0, tzinfo=timezone.utc)
+    rows = []
+    for index in range(1500):
+        moment = first + timedelta(minutes=3 * index, seconds=rng.randint(0, 2))
+        observation = _observation(moment, rng, rng.choice([None, 8, 20]))
+        rows.append(
+            ("biki", "1", iso(moment), iso(moment), "test", "test")
+            + (observation.mechanical_bikes, observation.electric_bikes)
+            + (observation.free_docks, observation.capacity)
+        )
+    connection.executemany(
+        """INSERT OR IGNORE INTO observations(provider_id, station_id, observed_at, collected_at,
+        source, capture_id, mechanical_bikes, electric_bikes, free_docks, capacity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows,
+    )
+    connection.commit()
+    start, end = first - timedelta(hours=5), first + timedelta(days=4)
+    expected = reference_history(
+        repository.station_history("biki", "1", start, end), start, end, "day"
+    )
+    actual = CurrentStationsService(repository).history("biki", "1", start, end, "day", 10_000)
+    assert actual is not None
+    assert actual["points"] == expected
+    assert sum(point["observations"] for point in expected) == len(rows)
+    assert any(
+        point["timestamp"] == datetime(2026, 10, 24, 22, 0, tzinfo=timezone.utc)
+        for point in expected
+    )
+
+
 def test_occupancy_tie_keeps_exact_rounding(connection) -> None:
     """95 filas al 50 % y 5 al 37,5 %: media exacta 49,375, que redondea a 49,38."""
     repository = SqliteObservationRepository(connection)

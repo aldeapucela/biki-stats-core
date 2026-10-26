@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from unittest.mock import Mock
 
 from movilidad.application.services import CurrentStationsService, aggregate_history
-from movilidad.domain.entities import Observation
+from movilidad.domain.entities import HistoryGroup, Observation
 
 
 def _observation(moment: datetime) -> Observation:
@@ -40,8 +40,8 @@ def test_daily_buckets_survive_dst_change() -> None:
 def test_daily_history_uses_timezone_aware_aggregation() -> None:
     repository = Mock()
     repository.station_exists.return_value = True
-    moment = datetime(2026, 6, 30, 22, 30, tzinfo=timezone.utc)
-    repository.station_history.return_value = [_observation(moment)]
+    # 22:30 UTC es la hora UTC "2026-06-30T22" con una observación, capacidad 5 y 4 anclajes libres.
+    repository.history_groups.return_value = [HistoryGroup("2026-06-30T22", 5, 4, 1, 1, 1, None, 0)]
     service = CurrentStationsService(repository)
 
     result = service.history(
@@ -58,4 +58,5 @@ def test_daily_history_uses_timezone_aware_aggregation() -> None:
     assert [point["timestamp"] for point in populated] == [
         datetime(2026, 6, 30, 22, 0, tzinfo=timezone.utc)
     ]
-    repository.station_history_buckets.assert_not_called()
+    repository.station_history.assert_not_called()
+    assert result["points"][1]["mechanical"] == 1.0
