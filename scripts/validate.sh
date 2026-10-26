@@ -71,6 +71,7 @@ required_files=(
   migrations/env.py
   migrations/versions/0001_initial.py
   migrations/versions/0002_historical_import.py
+  migrations/versions/0003_history_covering_index.py
   src/movilidad/api/main.py
   src/movilidad/application/history_import.py
   src/movilidad/collector/main.py
@@ -95,6 +96,7 @@ step "Formato"
 "$RUFF_BIN" format --check src tests scripts
 
 step "Migración Alembic en SQLite temporal"
+export BIKI_DATABASE_PATH="$TMP_DIR/migration.sqlite3"
 "$ALEMBIC_BIN" upgrade head
 "$PYTHON_BIN" - <<'PY'
 import os

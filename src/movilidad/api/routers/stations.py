@@ -8,7 +8,7 @@ from movilidad.api.errors import ApiError
 from movilidad.api.responses import success
 from movilidad.application.services import CurrentStationsService
 from movilidad.schemas.api.common import Envelope, PaginationMeta
-from movilidad.schemas.api.stations import HistoryData, StationData, SummaryData
+from movilidad.schemas.api.stations import AnalysisData, HistoryData, StationData, SummaryData
 
 router = APIRouter(prefix="/stations", tags=["stations"])
 MAX_HISTORY_DAYS = 3650
@@ -90,6 +90,27 @@ def station_history(
     if data is None:
         raise ApiError(404, "RESOURCE_NOT_FOUND", "La estación no existe", "station_id")
     return success(request, HistoryData.model_validate(data).model_dump(mode="json", by_alias=True))
+
+
+@router.get("/{station_id}/analysis", response_model=Envelope[AnalysisData])
+def station_analysis(
+    station_id: str,
+    request: Request,
+    from_: datetime = Query(alias="from"),
+    to: datetime = Query(),
+    granularity: Literal["raw", "hour", "day"] = "raw",
+    limit: int = Query(default=10_000, ge=1, le=10_000),
+    provider_id: str = Query(default="biki"),
+    service: CurrentStationsService = Depends(get_station_service),
+):
+    _check_provider(provider_id)
+    start, end = _validate_range(from_, to)
+    data = service.analysis(provider_id, station_id, start, end, granularity, limit)
+    if data is None:
+        raise ApiError(404, "RESOURCE_NOT_FOUND", "La estación no existe", "station_id")
+    return success(
+        request, AnalysisData.model_validate(data).model_dump(mode="json", by_alias=True)
+    )
 
 
 @router.get("/{station_id}/summary", response_model=Envelope[SummaryData])

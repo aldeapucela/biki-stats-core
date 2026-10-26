@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
+from unittest.mock import Mock
 
-from movilidad.application.services import aggregate_history
+from movilidad.application.services import CurrentStationsService, aggregate_history
 from movilidad.domain.entities import Observation
 
 
@@ -34,3 +35,27 @@ def test_daily_buckets_survive_dst_change() -> None:
         datetime(2026, 10, 25, 23, 0, tzinfo=timezone.utc),
         datetime(2026, 10, 26, 23, 0, tzinfo=timezone.utc),
     ]
+
+
+def test_daily_history_uses_timezone_aware_aggregation() -> None:
+    repository = Mock()
+    repository.station_exists.return_value = True
+    moment = datetime(2026, 6, 30, 22, 30, tzinfo=timezone.utc)
+    repository.station_history.return_value = [_observation(moment)]
+    service = CurrentStationsService(repository)
+
+    result = service.history(
+        "biki",
+        "1",
+        datetime(2026, 6, 30, 12, 0, tzinfo=timezone.utc),
+        datetime(2026, 7, 2, 12, 0, tzinfo=timezone.utc),
+        "day",
+        10_000,
+    )
+
+    assert result is not None
+    populated = [point for point in result["points"] if point["observations"]]
+    assert [point["timestamp"] for point in populated] == [
+        datetime(2026, 6, 30, 22, 0, tzinfo=timezone.utc)
+    ]
+    repository.station_history_buckets.assert_not_called()

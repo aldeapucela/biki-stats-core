@@ -9,12 +9,21 @@ def connect(settings: Settings | None = None) -> sqlite3.Connection:
     path = Path(current.database_path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(current.database_path, timeout=30, check_same_thread=False)
+    connection = sqlite3.connect(current.database_path, timeout=2, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
-    connection.execute("PRAGMA busy_timeout=30000")
-    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA busy_timeout=2000")
     return connection
+
+
+def initialize_database(settings: Settings | None = None) -> None:
+    """Inicializa SQLite una vez por proceso, fuera del camino de cada petición."""
+    connection = connect(settings)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        ensure_schema(connection)
+    finally:
+        connection.close()
 
 
 def ensure_schema(connection: sqlite3.Connection) -> None:
@@ -51,6 +60,11 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_observations_station_time
             ON observations(provider_id, station_id, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_observations_station_history_covering
+            ON observations(
+                provider_id, station_id, observed_at,
+                mechanical_bikes, electric_bikes, free_docks, capacity
+            );
         CREATE INDEX IF NOT EXISTS idx_observations_collected_at ON observations(collected_at);
         CREATE TABLE IF NOT EXISTS historical_imports (
             source_key TEXT PRIMARY KEY,
