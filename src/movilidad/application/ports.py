@@ -1,8 +1,15 @@
-import sqlite3
 from datetime import datetime
 from typing import Protocol, Sequence
 
-from movilidad.domain.entities import Capture, Observation, Station, StationSnapshot
+from movilidad.domain.entities import (
+    Capture,
+    HistoryGroup,
+    Observation,
+    Station,
+    StationSnapshot,
+    SummaryGroup,
+    SummaryRange,
+)
 
 
 class ObservationRepository(Protocol):
@@ -45,18 +52,22 @@ class ObservationRepository(Protocol):
         self, provider_id: str, station_id: str, start: datetime, end: datetime
     ) -> Sequence[Observation]: ...
 
-    def station_history_buckets(
+    def history_groups(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime, granularity: str
+    ) -> Sequence[HistoryGroup]: ...
+
+    def occupancy_sequence(
         self,
         provider_id: str,
         station_id: str,
         start: datetime,
         end: datetime,
-        granularity: str,
-    ) -> Sequence[sqlite3.Row]: ...
+        bucket: str | None = None,
+    ) -> Sequence[tuple[int | None, int | None]]: ...
 
-    def station_summary_aggregate(
+    def summary_groups(
         self, provider_id: str, station_id: str, start: datetime, end: datetime
-    ) -> dict[str, object] | None: ...
+    ) -> tuple[Sequence[SummaryGroup], SummaryRange]: ...
 
     def acquire_capture_lock(self, provider_id: str, capture_id: str) -> bool: ...
 

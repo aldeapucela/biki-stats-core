@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from movilidad.core.config import Settings, get_settings
 from movilidad.core.logging import configure_logging
 from movilidad.domain.entities import Capture, Observation, Station
-from movilidad.infrastructure.db.connection import connect, ensure_schema
+from movilidad.infrastructure.db.connection import connect, init_database
 from movilidad.infrastructure.db.repository import SqliteObservationRepository
 from movilidad.infrastructure.history.github import GitHubHistorySource, HistorySnapshot
 from movilidad.infrastructure.providers.gbfs import GbfsProvider
@@ -81,7 +81,7 @@ def run_historical_import(
     try:
         if not dry_run:
             connection = connect(current)
-            ensure_schema(connection)
+            init_database(connection)
             repository = SqliteObservationRepository(connection)
             claim = repository.claim_historical_import(
                 SOURCE_KEY,
@@ -459,12 +459,12 @@ def history_import_status(
     if connection is not None:
         return SqliteObservationRepository(connection).historical_import_status(SOURCE_KEY)
     current = settings or get_settings()
-    status_connection = connect(current)
-    ensure_schema(status_connection)
+    connection = connect(current)
+    init_database(connection)
     try:
-        return SqliteObservationRepository(status_connection).historical_import_status(SOURCE_KEY)
+        return SqliteObservationRepository(connection).historical_import_status(SOURCE_KEY)
     finally:
-        status_connection.close()
+        connection.close()
 
 
 async def history_import_worker(settings: Settings) -> None:

@@ -1,17 +1,24 @@
 import logging
-import time
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta, timezone
 from datetime import time as datetime_time
+from fractions import Fraction
 from threading import Lock
+from time import perf_counter
 from zoneinfo import ZoneInfo
 
 from movilidad.application.ports import ObservationRepository
-from movilidad.domain.entities import Observation, StationSnapshot
+from movilidad.domain.entities import (
+    HistoryGroup,
+    Observation,
+    StationSnapshot,
+    SummaryGroup,
+    SummaryRange,
+)
 from movilidad.domain.rules import data_age_seconds, haversine_meters, is_stale, occupancy_percent
 
+logger = logging.getLogger("movilidad.history")
 LOCAL_ZONE = ZoneInfo("Europe/Madrid")
-logger = logging.getLogger(__name__)
 
 
 class AnalysisCache:
@@ -22,7 +29,7 @@ class AnalysisCache:
         self._lock = Lock()
 
     def get(self, key: tuple[object, ...]) -> dict[str, object] | None:
-        now = time.monotonic()
+        now = perf_counter()
         with self._lock:
             entry = self._entries.get(key)
             if entry is None:
@@ -38,7 +45,7 @@ class AnalysisCache:
             if len(self._entries) >= self.max_entries:
                 oldest_key = min(self._entries, key=lambda item: self._entries[item][0])
                 self._entries.pop(oldest_key, None)
-            self._entries[key] = (time.monotonic() + self.ttl_seconds, value)
+            self._entries[key] = (perf_counter() + self.ttl_seconds, value)
 
 
 class CurrentStationsService:
@@ -98,31 +105,44 @@ class CurrentStationsService:
     ) -> dict[str, object] | None:
         if not self.repository.station_exists(provider_id, station_id):
             return None
-        started_at = time.perf_counter()
+        started = perf_counter()
         if granularity == "raw":
             observations = self.repository.station_history(provider_id, station_id, start, end)
-            points = aggregate_history(observations, start, end, granularity)
-            processed = len(observations)
+            sql_ms = (perf_counter() - started) * 1000
+            points = [_point(observation) for observation in observations]
+            rows = groups = len(observations)
         elif granularity == "day":
             observations = self.repository.station_history(provider_id, station_id, start, end)
+            sql_ms = (perf_counter() - started) * 1000
             points = aggregate_history(observations, start, end, granularity)
-            processed = len(observations)
+            rows = groups = len(observations)
         else:
-            rows = self.repository.station_history_buckets(
+            fallback_sql_seconds = 0.0
+
+            def occupancy_sequence(bucket: str) -> OccupancyRows:
+                nonlocal fallback_sql_seconds
+                fallback_started = perf_counter()
+                rows = self.repository.occupancy_sequence(
+                    provider_id, station_id, start, end, bucket
+                )
+                fallback_sql_seconds += perf_counter() - fallback_started
+                return rows
+
+            history_groups = self.repository.history_groups(
                 provider_id, station_id, start, end, granularity
             )
-            points = aggregate_bucket_rows(rows, start, end, granularity)
-            processed = len(rows)
-        logger.info(
-            "historical query completed",
-            extra={
-                "station_id": station_id,
-                "granularity": granularity,
-                "processed_rows": processed,
-                "history_points": len(points[:limit]),
-                "sql_duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-            },
-        )
+            group_sql_seconds = perf_counter() - started
+            points = aggregate_groups(
+                history_groups,
+                start,
+                end,
+                granularity,
+                occupancy_sequence,
+            )
+            sql_ms = (group_sql_seconds + fallback_sql_seconds) * 1000
+            rows = sum(group.observations for group in history_groups)
+            groups = len(history_groups)
+        _log_query("history", provider_id, station_id, granularity, started, sql_ms, rows, groups)
         return {
             "station_id": station_id,
             "provider_id": provider_id,
@@ -137,18 +157,31 @@ class CurrentStationsService:
     ) -> dict[str, object] | None:
         if not self.repository.station_exists(provider_id, station_id):
             return None
-        started_at = time.perf_counter()
-        row = self.repository.station_summary_aggregate(provider_id, station_id, start, end)
-        summary = summary_from_row(provider_id, station_id, start, end, row)
-        logger.info(
-            "historical summary completed",
-            extra={
-                "station_id": station_id,
-                "observations": summary["observations"],
-                "sql_duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-            },
+        started = perf_counter()
+        groups, edges = self.repository.summary_groups(provider_id, station_id, start, end)
+        group_sql_seconds = perf_counter() - started
+        fallback_sql_seconds = 0.0
+
+        def occupancy_sequence() -> OccupancyRows:
+            nonlocal fallback_sql_seconds
+            fallback_started = perf_counter()
+            rows = self.repository.occupancy_sequence(provider_id, station_id, start, end)
+            fallback_sql_seconds += perf_counter() - fallback_started
+            return rows
+
+        result = summarize_groups(
+            groups,
+            edges,
+            provider_id,
+            station_id,
+            start,
+            end,
+            occupancy_sequence,
         )
-        return summary
+        sql_ms = (group_sql_seconds + fallback_sql_seconds) * 1000
+        rows = int(result["observations"])  # type: ignore[call-overload]
+        _log_query("summary", provider_id, station_id, None, started, sql_ms, rows, len(groups))
+        return result
 
     def analysis(
         self,
@@ -165,220 +198,15 @@ class CurrentStationsService:
         if self.analysis_cache is not None:
             cached = self.analysis_cache.get(key)
             if cached is not None:
-                logger.info(
-                    "historical analysis cache hit",
-                    extra={"station_id": station_id, "granularity": granularity},
-                )
                 return cached
-
-        started_at = time.perf_counter()
-        if granularity == "raw":
-            observations = self.repository.station_history(provider_id, station_id, start, end)
-            points = aggregate_history(observations, start, end, granularity)
-            summary = summary_from_observations(provider_id, station_id, start, end, observations)
-            observation_count = len(observations)
-        elif granularity == "day":
-            observations = self.repository.station_history(provider_id, station_id, start, end)
-            points = aggregate_history(observations, start, end, granularity)
-            summary = summary_from_observations(provider_id, station_id, start, end, observations)
-            observation_count = len(observations)
-        else:
-            rows = self.repository.station_history_buckets(
-                provider_id, station_id, start, end, granularity
-            )
-            points = aggregate_bucket_rows(rows, start, end, granularity)
-            summary_row = self.repository.station_summary_aggregate(
-                provider_id, station_id, start, end
-            )
-            summary = summary_from_row(provider_id, station_id, start, end, summary_row)
-            observation_count = int(summary["observations"])
-
-        data = {
-            "history": {
-                "station_id": station_id,
-                "provider_id": provider_id,
-                "from": start,
-                "to": end,
-                "granularity": granularity,
-                "points": points[:limit],
-            },
-            "summary": summary,
-        }
+        history = self.history(provider_id, station_id, start, end, granularity, limit)
+        summary = self.summary(provider_id, station_id, start, end)
+        if history is None or summary is None:
+            return None
+        result = {"history": history, "summary": summary}
         if self.analysis_cache is not None:
-            self.analysis_cache.set(key, data)
-        logger.info(
-            "historical analysis completed",
-            extra={
-                "station_id": station_id,
-                "granularity": granularity,
-                "observations": observation_count,
-                "history_points": len(points[:limit]),
-                "sql_duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-                "cache_hit": False,
-            },
-        )
-        return data
-
-
-def summary_from_observations(
-    provider_id: str,
-    station_id: str,
-    start: datetime,
-    end: datetime,
-    observations: Sequence[Observation],
-) -> dict[str, object]:
-    valid_occupancy = [
-        (
-            occupancy_percent(observation.capacity, observation.free_docks),
-            observation.observed_at,
-        )
-        for observation in observations
-    ]
-    valid_occupancy = [
-        (value, timestamp) for value, timestamp in valid_occupancy if value is not None
-    ]
-    occupancy_values = [value for value, _ in valid_occupancy]
-    mechanical_average = _mean(_values(observations, "mechanical_bikes"))
-    electric_average = _mean(_values(observations, "electric_bikes"))
-    free_docks_average = _mean(_values(observations, "free_docks"))
-    total_bikes = [
-        observation.mechanical_bikes + observation.electric_bikes
-        for observation in observations
-        if observation.mechanical_bikes is not None and observation.electric_bikes is not None
-    ]
-    composition_total = sum(
-        value
-        for value in (mechanical_average, electric_average, free_docks_average)
-        if value is not None
-    )
-    minimum = min(valid_occupancy, default=(None, None), key=lambda item: item[0] or 0)
-    maximum = max(valid_occupancy, default=(None, None), key=lambda item: item[0] or 0)
-    return {
-        "station_id": station_id,
-        "provider_id": provider_id,
-        "from": start,
-        "to": end,
-        "observations": len(observations),
-        "occupancy": {
-            "average_percent": _mean(occupancy_values),
-            "minimum_percent": minimum[0],
-            "maximum_percent": maximum[0],
-            "minimum_at": minimum[1],
-            "maximum_at": maximum[1],
-        },
-        "bikes": {
-            "mechanical_average": mechanical_average,
-            "electric_average": electric_average,
-            "free_docks_average": free_docks_average,
-            "total_bikes_average": _mean(total_bikes),
-        },
-        "composition": {
-            "mechanical_percent": _percent_of(mechanical_average, composition_total),
-            "electric_percent": _percent_of(electric_average, composition_total),
-            "free_docks_percent": _percent_of(free_docks_average, composition_total),
-        },
-        "first_observed_at": observations[0].observed_at if observations else None,
-        "last_observed_at": observations[-1].observed_at if observations else None,
-        "missing_buckets": count_missing_buckets(observations, start, end, "hour"),
-    }
-
-
-def summary_from_row(
-    provider_id: str,
-    station_id: str,
-    start: datetime,
-    end: datetime,
-    row,
-) -> dict[str, object]:
-    observations = int(row["observations"]) if row is not None else 0
-    mechanical = row["mechanical_average"] if row is not None else None
-    electric = row["electric_average"] if row is not None else None
-    free_docks = row["free_docks_average"] if row is not None else None
-    total_bikes = row["total_bikes_average"] if row is not None else None
-    composition_total = sum(
-        value for value in (mechanical, electric, free_docks) if value is not None
-    )
-    minimum_at = _parse_timestamp(row["minimum_at"]) if row and row["minimum_at"] else None
-    maximum_at = _parse_timestamp(row["maximum_at"]) if row and row["maximum_at"] else None
-    first_at = (
-        _parse_timestamp(row["first_observed_at"]) if row and row["first_observed_at"] else None
-    )
-    last_at = _parse_timestamp(row["last_observed_at"]) if row and row["last_observed_at"] else None
-    hourly_buckets = int(row["hourly_buckets"]) if row is not None else 0
-    return {
-        "station_id": station_id,
-        "provider_id": provider_id,
-        "from": start,
-        "to": end,
-        "observations": observations,
-        "occupancy": {
-            "average_percent": row["average_percent"] if row is not None else None,
-            "minimum_percent": row["minimum_percent"] if row is not None else None,
-            "maximum_percent": row["maximum_percent"] if row is not None else None,
-            "minimum_at": minimum_at,
-            "maximum_at": maximum_at,
-        },
-        "bikes": {
-            "mechanical_average": mechanical,
-            "electric_average": electric,
-            "free_docks_average": free_docks,
-            "total_bikes_average": total_bikes,
-        },
-        "composition": {
-            "mechanical_percent": _percent_of(mechanical, composition_total),
-            "electric_percent": _percent_of(electric, composition_total),
-            "free_docks_percent": _percent_of(free_docks, composition_total),
-        },
-        "first_observed_at": first_at,
-        "last_observed_at": last_at,
-        "missing_buckets": max(_bucket_count(start, end, "hour") - hourly_buckets, 0),
-    }
-
-
-def aggregate_bucket_rows(rows, start: datetime, end: datetime, granularity: str):
-    grouped = {
-        _parse_timestamp(row["bucket"]): {
-            "timestamp": _parse_timestamp(row["bucket"]),
-            "mechanical": row["mechanical"],
-            "electric": row["electric"],
-            "free_docks": row["free_docks"],
-            "capacity": row["capacity"],
-            "occupancy_percent": row["occupancy_percent"],
-            "observations": row["observations"],
-        }
-        for row in rows
-    }
-    points = []
-    bucket_start = _floor_datetime(start, granularity)
-    while bucket_start <= end:
-        points.append(grouped.get(bucket_start, _empty_bucket(bucket_start)))
-        bucket_start = _next_bucket(bucket_start, granularity)
-    return points
-
-
-def _empty_bucket(timestamp: datetime) -> dict[str, object]:
-    return {
-        "timestamp": timestamp,
-        "mechanical": None,
-        "electric": None,
-        "free_docks": None,
-        "capacity": None,
-        "occupancy_percent": None,
-        "observations": 0,
-    }
-
-
-def _bucket_count(start: datetime, end: datetime, granularity: str) -> int:
-    current = _floor_datetime(start, granularity)
-    count = 0
-    while current <= end:
-        count += 1
-        current = _next_bucket(current, granularity)
-    return count
-
-
-def _parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            self.analysis_cache.set(key, result)
+        return result
 
 
 def snapshot_to_dict(snapshot: StationSnapshot) -> dict[str, object]:
@@ -413,28 +241,195 @@ def snapshot_to_dict(snapshot: StationSnapshot) -> dict[str, object]:
     }
 
 
-def aggregate_history(
-    observations: Sequence[Observation], start: datetime, end: datetime, granularity: str
+OccupancyRows = Iterable[tuple[int | None, int | None]]
+
+
+def aggregate_groups(
+    groups: Sequence[HistoryGroup],
+    start: datetime,
+    end: datetime,
+    granularity: str,
+    sequence: Callable[[str], OccupancyRows],
 ) -> list[dict[str, object]]:
-    if granularity == "raw":
-        return [_point(observation) for observation in observations]
-    bucket_start = _floor_datetime(start, granularity)
-    grouped: dict[datetime, list[Observation]] = {}
-    while bucket_start <= end:
-        grouped[bucket_start] = []
-        bucket_start = _next_bucket(bucket_start, granularity)
-    for observation in observations:
-        key = _floor_datetime(observation.observed_at, granularity)
-        if key in grouped:
-            grouped[key].append(observation)
-    return [_aggregate_bucket(timestamp, values) for timestamp, values in grouped.items()]
+    """Reduce los grupos de SQLite a un punto por franja, rellenando las franjas vacías.
+
+    La ocupación de cada observación ya viene redondeada a 2 decimales; se acumula en
+    céntimos enteros. `sequence(franja)` devuelve las filas de esa franja para los empates
+    (ver `_occupancy_mean`).
+    """
+    totals: dict[str, _BucketTotals] = {}
+    for group in groups:
+        total = totals.setdefault(group.bucket, _BucketTotals())
+        total.add(group)
+    step = timedelta(hours=1) if granularity == "hour" else timedelta(days=1)
+    pattern = "%Y-%m-%dT%H" if granularity == "hour" else "%Y-%m-%d"
+    points: list[dict[str, object]] = []
+    moment = _floor_datetime(start, granularity)
+    while moment <= end:
+        key = moment.strftime(pattern)
+        total = totals.get(key) or _BucketTotals()
+        points.append(total.point(moment, lambda key=key: sequence(key)))
+        moment += step
+    return points
 
 
-def count_missing_buckets(
-    observations: Sequence[Observation], start: datetime, end: datetime, granularity: str
-) -> int:
-    points = aggregate_history(observations, start, end, granularity)
-    return sum(point["observations"] == 0 for point in points)
+class _BucketTotals:
+    def __init__(self) -> None:
+        self.observations = 0
+        self.mechanical = [0, 0]
+        self.electric = [0, 0]
+        self.free_docks = [0, 0]
+        self.capacity = [0, 0]
+        self.occupancy_cents = 0
+        self.occupancy_count = 0
+
+    def add(self, group: HistoryGroup) -> None:
+        self.observations += group.observations
+        # (acumulador, suma de los valores no nulos, cuántas observaciones aportan valor)
+        for pair, total, count in (
+            (self.mechanical, group.mechanical_sum, group.mechanical_count),
+            (self.electric, group.electric_sum, group.electric_count),
+            (
+                self.free_docks,
+                None if group.free_docks is None else group.free_docks * group.observations,
+                0 if group.free_docks is None else group.observations,
+            ),
+            (
+                self.capacity,
+                None if group.capacity is None else group.capacity * group.observations,
+                0 if group.capacity is None else group.observations,
+            ),
+        ):
+            if total is not None and count:
+                pair[0] += total
+                pair[1] += count
+        occupancy = occupancy_percent(group.capacity, group.free_docks)
+        if occupancy is not None:
+            self.occupancy_cents += round(occupancy * 100) * group.observations
+            self.occupancy_count += group.observations
+
+    def point(
+        self, timestamp: datetime, sequence: Callable[[], OccupancyRows]
+    ) -> dict[str, object]:
+        return {
+            "timestamp": timestamp,
+            "mechanical": _mean_of(*self.mechanical),
+            "electric": _mean_of(*self.electric),
+            "free_docks": _mean_of(*self.free_docks),
+            "capacity": _mean_of(*self.capacity),
+            "occupancy_percent": _occupancy_mean(
+                self.occupancy_cents, self.occupancy_count, sequence
+            ),
+            "observations": self.observations,
+        }
+
+
+def summarize_groups(
+    groups: Sequence[SummaryGroup],
+    edges: SummaryRange,
+    provider_id: str,
+    station_id: str,
+    start: datetime,
+    end: datetime,
+    sequence: Callable[[], OccupancyRows],
+) -> dict[str, object]:
+    total = sum(group.observations for group in groups)
+    sums = {name: [0, 0] for name in ("mechanical", "electric", "free_docks", "total_bikes")}
+    occupancy_cents = occupancy_count = 0
+    minimum: tuple[float, datetime] | None = None
+    maximum: tuple[float, datetime] | None = None
+    for group in groups:
+        count = group.observations
+        for name, value in (
+            ("mechanical", group.mechanical_bikes),
+            ("electric", group.electric_bikes),
+            ("free_docks", group.free_docks),
+        ):
+            if value is not None:
+                sums[name][0] += value * count
+                sums[name][1] += count
+        if group.mechanical_bikes is not None and group.electric_bikes is not None:
+            sums["total_bikes"][0] += (group.mechanical_bikes + group.electric_bikes) * count
+            sums["total_bikes"][1] += count
+        occupancy = occupancy_percent(group.capacity, group.free_docks)
+        if occupancy is None:
+            continue
+        occupancy_cents += round(occupancy * 100) * count
+        occupancy_count += count
+        # Como al recorrer en orden cronológico: gana la primera aparición del valor extremo.
+        if minimum is None or (occupancy, group.first_observed_at) < minimum:
+            minimum = (occupancy, group.first_observed_at)
+        if (
+            maximum is None
+            or occupancy > maximum[0]
+            or (occupancy == maximum[0] and group.first_observed_at < maximum[1])
+        ):
+            maximum = (occupancy, group.first_observed_at)
+    mechanical_average = _mean_of(*sums["mechanical"])
+    electric_average = _mean_of(*sums["electric"])
+    free_docks_average = _mean_of(*sums["free_docks"])
+    composition_total = sum(
+        value
+        for value in (mechanical_average, electric_average, free_docks_average)
+        if value is not None
+    )
+    hours_in_range = (
+        int((_floor_datetime(end, "hour") - _floor_datetime(start, "hour")) / timedelta(hours=1))
+        + 1
+    )
+    return {
+        "station_id": station_id,
+        "provider_id": provider_id,
+        "from": start,
+        "to": end,
+        "observations": total,
+        "occupancy": {
+            "average_percent": _occupancy_mean(occupancy_cents, occupancy_count, sequence),
+            "minimum_percent": minimum[0] if minimum else None,
+            "maximum_percent": maximum[0] if maximum else None,
+            "minimum_at": minimum[1] if minimum else None,
+            "maximum_at": maximum[1] if maximum else None,
+        },
+        "bikes": {
+            "mechanical_average": mechanical_average,
+            "electric_average": electric_average,
+            "free_docks_average": free_docks_average,
+            "total_bikes_average": _mean_of(*sums["total_bikes"]),
+        },
+        "composition": {
+            "mechanical_percent": _percent_of(mechanical_average, composition_total),
+            "electric_percent": _percent_of(electric_average, composition_total),
+            "free_docks_percent": _percent_of(free_docks_average, composition_total),
+        },
+        "first_observed_at": edges.first_observed_at,
+        "last_observed_at": edges.last_observed_at,
+        "missing_buckets": hours_in_range - edges.observed_hours,
+    }
+
+
+def _log_query(
+    kind: str,
+    provider_id: str,
+    station_id: str,
+    granularity: str | None,
+    started: float,
+    sql_ms: float,
+    rows: int,
+    groups: int,
+) -> None:
+    logger.info(
+        "consulta histórica",
+        extra={
+            "kind": kind,
+            "provider_id": provider_id,
+            "station_id": station_id,
+            "granularity": granularity,
+            "duration_ms": round((perf_counter() - started) * 1000, 1),
+            "sql_ms": round(sql_ms, 1),
+            "rows": rows,
+            "groups": groups,
+        },
+    )
 
 
 def _point(observation: Observation) -> dict[str, object]:
@@ -449,13 +444,52 @@ def _point(observation: Observation) -> dict[str, object]:
     }
 
 
+def _floor_datetime(value: datetime, granularity: str) -> datetime:
+    value = value.astimezone(timezone.utc)
+    if granularity == "day":
+        local = value.astimezone(LOCAL_ZONE)
+        midnight = datetime.combine(local.date(), datetime_time.min, tzinfo=LOCAL_ZONE)
+        return midnight.astimezone(timezone.utc)
+    return value.replace(minute=0, second=0, microsecond=0)
+
+
+def aggregate_history(
+    observations: Sequence[Observation], start: datetime, end: datetime, granularity: str
+) -> list[dict[str, object]]:
+    if granularity == "raw":
+        return [_point(observation) for observation in observations]
+    points: list[dict[str, object]] = []
+    moment = _floor_datetime(start, granularity)
+    while moment <= end:
+        values = [
+            observation
+            for observation in observations
+            if _floor_datetime(observation.observed_at, granularity) == moment
+        ]
+        points.append(_aggregate_bucket(moment, values))
+        moment = _next_bucket(moment, granularity)
+    return points
+
+
+def _next_bucket(moment: datetime, granularity: str) -> datetime:
+    if granularity == "day":
+        next_date = moment.astimezone(LOCAL_ZONE).date() + timedelta(days=1)
+        return datetime.combine(next_date, datetime_time.min, tzinfo=LOCAL_ZONE).astimezone(
+            timezone.utc
+        )
+    return moment + timedelta(hours=1)
+
+
 def _aggregate_bucket(
     timestamp: datetime, observations: Sequence[Observation]
 ) -> dict[str, object]:
-    mechanical = _values(observations, "mechanical_bikes")
-    electric = _values(observations, "electric_bikes")
-    free_docks = _values(observations, "free_docks")
-    capacity = _values(observations, "capacity")
+    def values(name: str) -> list[float]:
+        return [
+            float(value)
+            for value in (getattr(item, name) for item in observations)
+            if value is not None
+        ]
+
     occupancy = [
         value
         for value in (occupancy_percent(item.capacity, item.free_docks) for item in observations)
@@ -463,44 +497,41 @@ def _aggregate_bucket(
     ]
     return {
         "timestamp": timestamp,
-        "mechanical": _mean(mechanical),
-        "electric": _mean(electric),
-        "free_docks": _mean(free_docks),
-        "capacity": _mean(capacity),
+        "mechanical": _mean(values("mechanical_bikes")),
+        "electric": _mean(values("electric_bikes")),
+        "free_docks": _mean(values("free_docks")),
+        "capacity": _mean(values("capacity")),
         "occupancy_percent": _mean(occupancy),
         "observations": len(observations),
     }
 
 
-def _floor_datetime(value: datetime, granularity: str) -> datetime:
-    """Trunca a la hora UTC o al día natural de Europe/Madrid; devuelve siempre UTC."""
-    if granularity == "day":
-        local = value.astimezone(LOCAL_ZONE)
-        midnight = datetime.combine(local.date(), datetime_time.min, tzinfo=LOCAL_ZONE)
-        return midnight.astimezone(timezone.utc)
-    return value.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
-
-
-def _next_bucket(bucket_start: datetime, granularity: str) -> datetime:
-    if granularity == "day":
-        # Se avanza por fecha local: los días de cambio horario duran 23 o 25 horas.
-        next_date = bucket_start.astimezone(LOCAL_ZONE).date() + timedelta(days=1)
-        return datetime.combine(next_date, datetime_time.min, tzinfo=LOCAL_ZONE).astimezone(
-            timezone.utc
-        )
-    return bucket_start + timedelta(hours=1)
-
-
-def _values(observations: Sequence[Observation], name: str) -> list[float]:
-    return [
-        float(value)
-        for value in (getattr(item, name) for item in observations)
-        if value is not None
-    ]
-
-
 def _mean(values: Sequence[float]) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
+
+
+def _mean_of(total: int, count: int) -> float | None:
+    return round(total / count, 2) if count else None
+
+
+def _occupancy_mean(cents: int, count: int, sequence: Callable[[], OccupancyRows]) -> float | None:
+    """Media de la ocupación (ya redondeada por observación) con 2 decimales.
+
+    Fuera de los empates la media exacta, redondeada a la mitad par, es la que daba la suma
+    en coma flotante. En un empate exacto (p. ej. 85,835) el resultado de esa suma dependía
+    del ruido de la coma flotante: ahí se repite la suma original fila a fila, en el mismo
+    orden, para devolver exactamente lo mismo que antes.
+    """
+    if not count:
+        return None
+    if (2 * cents) % (2 * count) == count:
+        values = [
+            value
+            for value in (occupancy_percent(capacity, free) for capacity, free in sequence())
+            if value is not None
+        ]
+        return round(sum(values) / len(values), 2)
+    return round(Fraction(cents, count)) / 100
 
 
 def _percent_of(value: float | None, total: float) -> float | None:

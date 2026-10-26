@@ -2,11 +2,23 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from movilidad.domain.entities import Capture, Observation, Station, StationSnapshot
+from movilidad.domain.entities import (
+    Capture,
+    HistoryGroup,
+    Observation,
+    Station,
+    StationSnapshot,
+    SummaryGroup,
+    SummaryRange,
+)
 
 
 def iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_instant(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 class SqliteObservationRepository:
@@ -348,95 +360,81 @@ class SqliteObservationRepository:
         ).fetchall()
         return [self._observation(row) for row in rows]
 
-    def station_history_buckets(
+    def history_groups(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime, granularity: str
+    ) -> list[HistoryGroup]:
+        """Agrega en SQLite por franja UTC (prefijo ISO de `observed_at`) y por capacidad/libres."""
+        prefix = 13 if granularity == "hour" else 10
+        rows = self.connection.execute(
+            f"""SELECT substr(observed_at, 1, {prefix}) AS bucket, capacity, free_docks,
+            COUNT(*) AS observations, SUM(mechanical_bikes) AS mechanical_sum,
+            COUNT(mechanical_bikes) AS mechanical_count, SUM(electric_bikes) AS electric_sum,
+            COUNT(electric_bikes) AS electric_count
+            FROM observations WHERE provider_id = ? AND station_id = ?
+            AND observed_at >= ? AND observed_at <= ?
+            GROUP BY bucket, capacity, free_docks""",
+            (provider_id, station_id, iso(start), iso(end)),
+        ).fetchall()
+        return [HistoryGroup(**dict(row)) for row in rows]
+
+    def occupancy_sequence(
         self,
         provider_id: str,
         station_id: str,
         start: datetime,
         end: datetime,
-        granularity: str,
-    ) -> list[sqlite3.Row]:
-        format_value = "%Y-%m-%dT%H:00:00Z" if granularity == "hour" else "%Y-%m-%dT00:00:00Z"
-        occupancy = (
-            "CASE WHEN capacity > 0 AND free_docks BETWEEN 0 AND capacity "
-            "THEN ROUND((capacity - free_docks) * 100.0 / capacity, 2) END"
+        bucket: str | None = None,
+    ) -> list[tuple[int | None, int | None]]:
+        """Capacidad y anclajes de cada observación, en orden cronológico (solo para empates).
+
+        Con `bucket` (prefijo ISO de una hora o día) se limita a esa franja.
+        """
+        low, high = iso(start), iso(end)
+        if bucket:
+            low, high = max(low, bucket), min(high, bucket + "~")  # "~" sigue a cualquier dígito/Z
+        rows = self.connection.execute(
+            """SELECT capacity, free_docks FROM observations
+            WHERE provider_id = ? AND station_id = ? AND observed_at >= ? AND observed_at <= ?
+            ORDER BY observed_at ASC""",
+            (provider_id, station_id, low, high),
+        ).fetchall()
+        return [(row["capacity"], row["free_docks"]) for row in rows]
+
+    def summary_groups(
+        self, provider_id: str, station_id: str, start: datetime, end: datetime
+    ) -> tuple[list[SummaryGroup], SummaryRange]:
+        """Agrupa por contadores iguales: el resumen se calcula sobre ellos, no fila a fila."""
+        params = (provider_id, station_id, iso(start), iso(end))
+        where = (
+            "FROM observations WHERE provider_id = ? AND station_id = ? "
+            "AND observed_at >= ? AND observed_at <= ?"
         )
         rows = self.connection.execute(
-            f"""SELECT strftime(?, observed_at) AS bucket,
-            ROUND(AVG(mechanical_bikes), 2) AS mechanical,
-            ROUND(AVG(electric_bikes), 2) AS electric,
-            ROUND(AVG(free_docks), 2) AS free_docks,
-            ROUND(AVG(capacity), 2) AS capacity,
-            ROUND(AVG({occupancy}), 2) AS occupancy_percent,
-            COUNT(*) AS observations
-            FROM observations
-            WHERE provider_id = ? AND station_id = ?
-            AND observed_at >= ? AND observed_at <= ?
-            GROUP BY bucket ORDER BY bucket ASC""",
-            (format_value, provider_id, station_id, iso(start), iso(end)),
+            f"""SELECT capacity, free_docks, mechanical_bikes, electric_bikes,
+            COUNT(*) AS observations, MIN(observed_at) AS first_observed_at {where}
+            GROUP BY capacity, free_docks, mechanical_bikes, electric_bikes""",
+            params,
         ).fetchall()
-        return list(rows)
-
-    def station_summary_aggregate(
-        self, provider_id: str, station_id: str, start: datetime, end: datetime
-    ) -> dict[str, object] | None:
-        occupancy = (
-            "CASE WHEN capacity > 0 AND free_docks BETWEEN 0 AND capacity "
-            "THEN ROUND((capacity - free_docks) * 100.0 / capacity, 2) END"
+        edges = self.connection.execute(
+            f"""SELECT MIN(observed_at) AS first_observed_at, MAX(observed_at) AS last_observed_at,
+            COUNT(DISTINCT substr(observed_at, 1, 13)) AS observed_hours {where}""",
+            params,
+        ).fetchone()
+        groups = [
+            SummaryGroup(
+                **{**dict(row), "first_observed_at": _parse_instant(row["first_observed_at"])}
+            )
+            for row in rows
+        ]
+        return groups, SummaryRange(
+            first_observed_at=_parse_instant(edges["first_observed_at"]),
+            last_observed_at=_parse_instant(edges["last_observed_at"]),
+            observed_hours=edges["observed_hours"],
         )
-        row = self.connection.execute(
-            f"""SELECT COUNT(*) AS observations,
-            ROUND(AVG(mechanical_bikes), 2) AS mechanical_average,
-            ROUND(AVG(electric_bikes), 2) AS electric_average,
-            ROUND(AVG(free_docks), 2) AS free_docks_average,
-            ROUND(AVG(CASE WHEN mechanical_bikes IS NOT NULL
-                AND electric_bikes IS NOT NULL
-                THEN mechanical_bikes + electric_bikes END), 2) AS total_bikes_average,
-            ROUND(AVG({occupancy}), 2) AS average_percent,
-            MIN({occupancy}) AS minimum_percent,
-            MAX({occupancy}) AS maximum_percent,
-            MIN(observed_at) AS first_observed_at,
-            MAX(observed_at) AS last_observed_at,
-            COUNT(DISTINCT strftime('%Y-%m-%dT%H:00:00Z', observed_at)) AS hourly_buckets
-            FROM observations
-            WHERE provider_id = ? AND station_id = ?
-            AND observed_at >= ? AND observed_at <= ?""",
-            (provider_id, station_id, iso(start), iso(end)),
-        ).fetchone()
-        if row is None:
-            return None
-        if row["observations"] == 0:
-            values = dict(row)
-            values["minimum_at"] = None
-            values["maximum_at"] = None
-            return values
-        minimum_at = self.connection.execute(
-            f"""SELECT observed_at FROM observations
-            WHERE provider_id = ? AND station_id = ?
-            AND observed_at >= ? AND observed_at <= ?
-            AND {occupancy} = ? ORDER BY observed_at ASC LIMIT 1""",
-            (provider_id, station_id, iso(start), iso(end), row["minimum_percent"]),
-        ).fetchone()
-        maximum_at = self.connection.execute(
-            f"""SELECT observed_at FROM observations
-            WHERE provider_id = ? AND station_id = ?
-            AND observed_at >= ? AND observed_at <= ?
-            AND {occupancy} = ? ORDER BY observed_at ASC LIMIT 1""",
-            (provider_id, station_id, iso(start), iso(end), row["maximum_percent"]),
-        ).fetchone()
-        values = dict(row)
-        values["minimum_at"] = minimum_at["observed_at"] if minimum_at else None
-        values["maximum_at"] = maximum_at["observed_at"] if maximum_at else None
-        return values
 
     def acquire_capture_lock(
         self, provider_id: str, capture_id: str, stale_after_seconds: int = 900
     ) -> bool:
-        """Toma el lock del proveedor; un lock más antiguo que el umbral se considera huérfano.
-
-        Un collector terminado con SIGKILL no libera su lock. Sin caducidad, todas las
-        capturas posteriores se omitirían indefinidamente.
-        """
         now = datetime.now(timezone.utc)
         cutoff = iso(now - timedelta(seconds=stale_after_seconds))
         try:
