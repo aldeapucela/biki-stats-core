@@ -95,6 +95,7 @@ step "Formato"
 "$RUFF_BIN" format --check src tests scripts
 
 step "Migración Alembic en SQLite temporal"
+export BIKI_DATABASE_PATH="$TMP_DIR/migration.sqlite3"
 "$ALEMBIC_BIN" upgrade head
 "$PYTHON_BIN" - <<'PY'
 import os

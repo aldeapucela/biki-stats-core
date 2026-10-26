@@ -78,19 +78,29 @@ class CurrentStationsService:
             points = [_point(observation) for observation in observations]
             rows = groups = len(observations)
         else:
+            fallback_sql_seconds = 0.0
+
+            def occupancy_sequence(bucket: str) -> OccupancyRows:
+                nonlocal fallback_sql_seconds
+                fallback_started = perf_counter()
+                rows = self.repository.occupancy_sequence(
+                    provider_id, station_id, start, end, bucket
+                )
+                fallback_sql_seconds += perf_counter() - fallback_started
+                return rows
+
             history_groups = self.repository.history_groups(
                 provider_id, station_id, start, end, granularity
             )
-            sql_ms = (perf_counter() - started) * 1000
+            group_sql_seconds = perf_counter() - started
             points = aggregate_groups(
                 history_groups,
                 start,
                 end,
                 granularity,
-                lambda bucket: self.repository.occupancy_sequence(
-                    provider_id, station_id, start, end, bucket
-                ),
+                occupancy_sequence,
             )
+            sql_ms = (group_sql_seconds + fallback_sql_seconds) * 1000
             rows = sum(group.observations for group in history_groups)
             groups = len(history_groups)
         _log_query("history", provider_id, station_id, granularity, started, sql_ms, rows, groups)
@@ -110,7 +120,16 @@ class CurrentStationsService:
             return None
         started = perf_counter()
         groups, edges = self.repository.summary_groups(provider_id, station_id, start, end)
-        sql_ms = (perf_counter() - started) * 1000
+        group_sql_seconds = perf_counter() - started
+        fallback_sql_seconds = 0.0
+
+        def occupancy_sequence() -> OccupancyRows:
+            nonlocal fallback_sql_seconds
+            fallback_started = perf_counter()
+            rows = self.repository.occupancy_sequence(provider_id, station_id, start, end)
+            fallback_sql_seconds += perf_counter() - fallback_started
+            return rows
+
         result = summarize_groups(
             groups,
             edges,
@@ -118,8 +137,9 @@ class CurrentStationsService:
             station_id,
             start,
             end,
-            lambda: self.repository.occupancy_sequence(provider_id, station_id, start, end),
+            occupancy_sequence,
         )
+        sql_ms = (group_sql_seconds + fallback_sql_seconds) * 1000
         rows = int(result["observations"])  # type: ignore[call-overload]
         _log_query("summary", provider_id, station_id, None, started, sql_ms, rows, len(groups))
         return result
