@@ -99,6 +99,20 @@ def test_observed_at_falls_back_to_capture_time_when_missing() -> None:
         assert before <= observed_at <= after
 
 
+def test_missing_last_reported_logs_one_warning_per_capture(caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        _observations(_status(s1=None, s2=None))
+    avisos = [r for r in caplog.records if "sin last_reported" in r.getMessage()]
+    assert len(avisos) == 1
+    assert avisos[0].stations == 2
+
+
+def test_no_warning_when_every_station_reports_last_reported(caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        _observations(_status(s1="2026-10-27T10:34:46Z", s2="2026-10-27T10:31:02Z"))
+    assert caplog.records == []
+
+
 def test_observed_at_falls_back_when_last_reported_is_invalid(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         observed = _observations(_status(s1="no-es-una-fecha", s2="2026-10-27T10:31:02Z"))

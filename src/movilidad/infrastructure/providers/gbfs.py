@@ -70,11 +70,13 @@ class GbfsProvider:
         mechanical_ids, electric_ids = self._vehicle_type_ids(vehicle_types or {})
         now = datetime.now(timezone.utc)
         result: list[tuple[Station, Observation]] = []
+        without_last_reported = 0
         for raw in status.get("stations", []):
             station_id = str(raw.get("station_id", ""))
             metadata = stations.get(station_id)
             if not metadata:
                 continue
+            without_last_reported += raw.get("last_reported") is None
             station = Station(
                 provider_id=self.provider_id,
                 station_id=station_id,
@@ -99,6 +101,13 @@ class GbfsProvider:
                 capacity=station.capacity,
             )
             result.append((station, observation))
+        if without_last_reported:
+            # Un único aviso por captura: si el feed dejara de publicar el campo, avisar por
+            # estación inundaría el registro (una línea por estación y captura).
+            logger.warning(
+                "Estaciones sin last_reported; se usa la hora de captura",
+                extra={"stations": without_last_reported, "total": len(result)},
+            )
         return result
 
     @staticmethod
