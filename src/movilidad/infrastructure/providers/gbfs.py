@@ -1,10 +1,17 @@
+import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 
 from movilidad.domain.entities import Observation, Station
+
+logger = logging.getLogger(__name__)
+
+# Margen para absorber la diferencia entre el reloj local y el del proveedor. En el feed de
+# BIKI (27-oct-2026) ninguna estación reportaba en el futuro: la más reciente tenía 10,8 s.
+FUTURE_TOLERANCE = timedelta(seconds=60)
 
 
 class GbfsProvider:
@@ -77,7 +84,7 @@ class GbfsProvider:
                 capacity=raw.get("capacity", metadata.get("capacity")),
                 is_active=raw.get("is_renting", 1) != 0,
             )
-            observed_at = self._timestamp(raw.get("last_report"), now)
+            observed_at = self._observed_at(raw, station_id, now)
             mechanical_bikes, electric_bikes = self._bike_counts(raw, mechanical_ids, electric_ids)
             observation = Observation(
                 provider_id=self.provider_id,
@@ -151,10 +158,39 @@ class GbfsProvider:
             return clean(str(value["text"]))
         return fallback
 
+    @classmethod
+    def _observed_at(cls, raw: dict[str, Any], station_id: str, now: datetime) -> datetime:
+        """Hora a la que la estación reportó el dato (`last_reported` de GBFS v3).
+
+        Si falta, no se puede interpretar o está en el futuro más allá de la tolerancia, se usa
+        la hora de captura: es preferible un dato con hora aproximada a perder la observación.
+        """
+        value = raw.get("last_reported")
+        if value is None:
+            return now
+        try:
+            observed_at = cls._timestamp(value, now)
+        except (TypeError, ValueError, OverflowError, OSError):
+            logger.warning(
+                "last_reported no válido; se usa la hora de captura",
+                extra={"station_id": station_id, "last_reported": str(value)[:40]},
+            )
+            return now
+        if observed_at > now + FUTURE_TOLERANCE:
+            logger.warning(
+                "last_reported en el futuro; se usa la hora de captura",
+                extra={"station_id": station_id, "last_reported": str(value)[:40]},
+            )
+            return now
+        return observed_at
+
     @staticmethod
     def _timestamp(value: Any, fallback: datetime) -> datetime:
         if value is None:
             return fallback
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value, tz=timezone.utc)
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
