@@ -173,10 +173,15 @@ class GbfsProvider:
 
         Si falta, no se puede interpretar o está en el futuro más allá de la tolerancia, se usa
         la hora de captura: es preferible un dato con hora aproximada a perder la observación.
+
+        Siempre con precisión de segundo. `iso()` omite los microsegundos cuando valen 0 y, como
+        texto, `...46Z` ordena después de `...46.183000Z`: con precisión mixta `MAX(observed_at)`
+        podría elegir un dato anterior. La de segundo es además la de las filas importadas.
         """
+        capture_second = now.replace(microsecond=0)
         value = raw.get("last_reported")
         if value is None:
-            return now
+            return capture_second
         try:
             observed_at = cls._timestamp(value, now)
         except (TypeError, ValueError, OverflowError, OSError):
@@ -184,14 +189,14 @@ class GbfsProvider:
                 "last_reported no válido; se usa la hora de captura",
                 extra={"station_id": station_id, "last_reported": str(value)[:40]},
             )
-            return now
+            return capture_second
         if observed_at > now + FUTURE_TOLERANCE:
             logger.warning(
                 "last_reported en el futuro; se usa la hora de captura",
                 extra={"station_id": station_id, "last_reported": str(value)[:40]},
             )
-            return now
-        return observed_at
+            return capture_second
+        return observed_at.replace(microsecond=0)
 
     @staticmethod
     def _timestamp(value: Any, fallback: datetime) -> datetime:

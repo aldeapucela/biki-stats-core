@@ -72,7 +72,8 @@ def _observations(status: dict) -> dict[str, tuple[datetime, datetime]]:
 def test_observed_at_comes_from_last_reported_of_each_station() -> None:
     status = _status(s1="2026-10-27T10:34:46.183Z", s2="2026-10-27T10:31:02Z")
     observed = _observations(status)
-    assert observed["1"][0] == datetime(2026, 10, 27, 10, 34, 46, 183000, tzinfo=timezone.utc)
+    # Precisión de segundo: ver test_observed_at_has_second_precision_whatever_the_feed_sends.
+    assert observed["1"][0] == datetime(2026, 10, 27, 10, 34, 46, tzinfo=timezone.utc)
     assert observed["2"][0] == datetime(2026, 10, 27, 10, 31, 2, tzinfo=timezone.utc)
     # Antes todas las estaciones compartían la hora de captura.
     assert observed["1"][0] != observed["2"][0]
@@ -95,8 +96,8 @@ def test_observed_at_falls_back_to_capture_time_when_missing() -> None:
     observed = _observations(_status(s1=None, s2=None))
     after = datetime.now(timezone.utc)
     for observed_at, collected_at in observed.values():
-        assert observed_at == collected_at
-        assert before <= observed_at <= after
+        assert observed_at == collected_at.replace(microsecond=0)
+        assert before.replace(microsecond=0) <= observed_at <= after
 
 
 def test_missing_last_reported_logs_one_warning_per_capture(caplog) -> None:
@@ -116,7 +117,7 @@ def test_no_warning_when_every_station_reports_last_reported(caplog) -> None:
 def test_observed_at_falls_back_when_last_reported_is_invalid(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         observed = _observations(_status(s1="no-es-una-fecha", s2="2026-10-27T10:31:02Z"))
-    assert observed["1"][0] == observed["1"][1]
+    assert observed["1"][0] == observed["1"][1].replace(microsecond=0)
     assert observed["2"][0] == datetime(2026, 10, 27, 10, 31, 2, tzinfo=timezone.utc)
     assert "last_reported no válido" in caplog.text
 
@@ -126,6 +127,16 @@ def test_observed_at_falls_back_when_last_reported_is_in_the_future(caplog) -> N
     near = (datetime.now(timezone.utc) + timedelta(seconds=20)).isoformat()
     with caplog.at_level(logging.WARNING):
         observed = _observations(_status(s1=future, s2=near))
-    assert observed["1"][0] == observed["1"][1]
-    assert observed["2"][0] == datetime.fromisoformat(near)
+    assert observed["1"][0] == observed["1"][1].replace(microsecond=0)
+    assert observed["2"][0] == datetime.fromisoformat(near).replace(microsecond=0)
     assert "en el futuro" in caplog.text
+
+
+def test_observed_at_has_second_precision_whatever_the_feed_sends() -> None:
+    """`iso()` omite los microsegundos cuando son 0 y, como texto, `...46Z` ordena DESPUÉS de
+    `...46.183000Z`: `MAX(observed_at)` podría elegir un dato anterior. Con precisión de segundo
+    todas las horas del collector tienen el mismo formato (y el de las filas importadas)."""
+    por_segundo = _observations(_status(s1="2026-10-27T10:34:46Z", s2="2026-10-27T10:34:46.183Z"))
+    assert por_segundo["1"][0] == por_segundo["2"][0]
+    for observed_at, _ in _observations(_status(s1="2026-10-27T10:34:46.999Z", s2=None)).values():
+        assert observed_at.microsecond == 0
