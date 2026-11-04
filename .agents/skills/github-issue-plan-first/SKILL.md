@@ -44,7 +44,8 @@ Hasta resolver todas las dudas y recibir permiso **explícito y específico para
    Refs: {issueUrl}
    ```
 
-5. Abrir PR hacia `main` del repositorio de implementación, enlazando explícitamente la issue y el plan. El cuerpo del PR debe incluir un cierre automático de GitHub (`Closes #N`, `Fixes #N` o `Resolves #N`; usando la referencia completa si la issue pertenece a otro repositorio), para que la issue quede asociada al PR y se cierre al fusionarlo. Tras crear o editar el PR, verificar con GitHub que la issue aparece en `closingIssuesReferences`. No fusionar sin autorización.
+5. Abrir PR hacia `main` del repositorio de implementación, enlazando explícitamente la issue y el plan. El título del PR debe ser igual a la primera línea del commit (`{feat|fix}: {título}`) y el cuerpo debe conservar la estructura del commit: descripción y `Refs: {issueUrl}`. Añadir también un cierre automático de GitHub (`Closes #N`, `Fixes #N` o `Resolves #N`; usando la referencia completa si la issue pertenece a otro repositorio), para que la issue quede asociada al PR y se cierre al fusionarlo. Tras crear o editar el PR, verificar con GitHub que la issue aparece en `closingIssuesReferences`.
+6. No fusionar sin autorización explícita. Cuando exista autorización para fusionar, usar squash merge y borrar la rama de la PR después de la fusión (`gh pr merge --squash --delete-branch`), y verificar que la PR está fusionada y la rama eliminada.
 
 ## Consideraciones
 
