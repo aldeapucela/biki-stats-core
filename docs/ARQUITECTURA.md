@@ -24,7 +24,7 @@ El servicio `collector` ejecuta `movilidad-collector --loop`, sin puertos y sin 
 
 No se necesita GitHub Actions, cron ni secretos de GitHub para capturar. El endpoint manual `POST /api/v1/ops/collector/run` requiere `Authorization: Bearer` con `BIKI_COLLECTOR_TOKEN`; sin token configurado está deshabilitado (`503`). La frescura se mide con `observed_at` y `collected_at`.
 
-El collector registra cada corrida y adquiere un lock por proveedor en SQLite. La clave de observación es `provider_id + station_id + observed_at`; repetir un feed no duplica observaciones. Los fallos liberan el lock y dejan la corrida en estado `failed`.
+El collector registra cada corrida y adquiere un lock por proveedor en SQLite. La clave de observación es `provider_id + station_id + observed_at`, con `observed_at` tomado de `last_reported` del proveedor: repetir un feed, o capturar una estación que no ha vuelto a reportar, no duplica observaciones (así que el número de filas por día depende de cuánto reporta cada estación, no de la frecuencia de captura). Los fallos liberan el lock y dejan la corrida en estado `failed`.
 
 ## Histórico y operación
 
